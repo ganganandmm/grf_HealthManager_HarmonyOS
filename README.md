@@ -1,0 +1,2 @@
+# ganganandmm-grf_HealthManager_HarmonyOS
+一个基于OpenHarmonyOS的人体健康管理系统
