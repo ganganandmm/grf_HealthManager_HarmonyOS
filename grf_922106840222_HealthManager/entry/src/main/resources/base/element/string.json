@@ -18,5 +18,22 @@
     },{
       "name": "mainAbility_label",
       "value": "label"
-    }]
+    },
+    {
+      "name": "req1",
+      "value": "用于同步用户健康数据"
+    },
+    {
+      "name": "req2",
+      "value": "读取媒体文件"
+    },
+    {
+      "name": "req3",
+      "value": "保存健康报告相关图片"
+    },
+    {
+      "name": "req4",
+      "value": "获取媒体位置信息"
+    }
+  ]
 }

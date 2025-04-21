@@ -2,6 +2,9 @@
   "src": [
     "pages/Login",
     "pages/register",
-    "pages/mainHome"
+    "pages/mainHome",
+    "pages/dataShow",
+    "pages/dataInput",
+    "pages/myInfo"
   ]
 }
