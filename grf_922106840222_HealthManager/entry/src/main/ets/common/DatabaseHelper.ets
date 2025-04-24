@@ -1,6 +1,7 @@
 import relationalStore from '@ohos.data.relationalStore';
 import { User } from './UserModel';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { StepRecord, HeartRateRecord, SleepRecord, WaterRecord } from './HealthDataModel';
 
 const TAG: string = 'DatabaseHelper';
 
@@ -10,7 +11,7 @@ interface StoreConfig {
 }
 
 const STORE_CONFIG: StoreConfig = {
-  name: 'health_management.db',
+  name: 'HealthDB.db',
   securityLevel: relationalStore.SecurityLevel.S1
 };
 
@@ -19,10 +20,35 @@ const SQL_CREATE_USER_TABLE = 'CREATE TABLE IF NOT EXISTS user ' +
   'username TEXT NOT NULL, ' +
   'password TEXT NOT NULL)';
 
-interface UserData {
-  username: string;
-  password: string;
-}
+const SQL_CREATE_STEP_TABLE = 'CREATE TABLE IF NOT EXISTS step_record ' +
+  '(id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
+  'user_id INTEGER NOT NULL, ' +
+  'date TEXT NOT NULL, ' +
+  'steps INTEGER NOT NULL, ' +
+  'FOREIGN KEY (user_id) REFERENCES user(id))';
+
+const SQL_CREATE_HEART_RATE_TABLE = 'CREATE TABLE IF NOT EXISTS heart_rate_record ' +
+  '(id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
+  'user_id INTEGER NOT NULL, ' +
+  'date TEXT NOT NULL, ' +
+  'time TEXT NOT NULL, ' +
+  'rate INTEGER NOT NULL, ' +
+  'FOREIGN KEY (user_id) REFERENCES user(id))';
+
+const SQL_CREATE_SLEEP_TABLE = 'CREATE TABLE IF NOT EXISTS sleep_record ' +
+  '(id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
+  'user_id INTEGER NOT NULL, ' +
+  'date TEXT NOT NULL, ' +
+  'duration INTEGER NOT NULL, ' +
+  'FOREIGN KEY (user_id) REFERENCES user(id))';
+
+const SQL_CREATE_WATER_TABLE = 'CREATE TABLE IF NOT EXISTS water_record ' +
+  '(id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
+  'user_id INTEGER NOT NULL, ' +
+  'date TEXT NOT NULL, ' +
+  'time TEXT NOT NULL, ' +
+  'amount INTEGER NOT NULL, ' +
+  'FOREIGN KEY (user_id) REFERENCES user(id))';
 
 export class DatabaseHelper {
   private rdbStore: relationalStore.RdbStore | null = null;
@@ -36,7 +62,12 @@ export class DatabaseHelper {
     try {
       this.rdbStore = await relationalStore.getRdbStore(this.context, STORE_CONFIG);
       await this.rdbStore.executeSql(SQL_CREATE_USER_TABLE, []);
-      // 在此处插入测试用户，实际应用中可能使用注册页面添加用户
+      await this.rdbStore.executeSql(SQL_CREATE_STEP_TABLE, []);
+      await this.rdbStore.executeSql(SQL_CREATE_HEART_RATE_TABLE, []);
+      await this.rdbStore.executeSql(SQL_CREATE_SLEEP_TABLE, []);
+      await this.rdbStore.executeSql(SQL_CREATE_WATER_TABLE, []);
+
+      // 插入测试用户
       await this.insertTestUser();
       hilog.info(0x0000, TAG, 'Database initialized successfully');
       return true;
@@ -53,18 +84,47 @@ export class DatabaseHelper {
       if (users.length === 0) {
         // 添加一个测试用户
         const testUser = new User('admin', '123456');
-        await this.insertUser(testUser);
-        hilog.info(0x0000, TAG, 'Test user inserted successfully');
+        const userId = await this.insertUser(testUser);
+        if (userId > 0) {
+          // 为测试用户添加一些测试健康数据
+          await this.insertTestHealthData(userId);
+          hilog.info(0x0000, TAG, 'Test user and health data inserted successfully');
+        }
       }
     } catch (error) {
       hilog.error(0x0000, TAG, `Failed to insert test user: ${error}`);
     }
   }
 
-  public async insertUser(user: User): Promise<boolean> {
+  private async insertTestHealthData(userId: number): Promise<void> {
+    try {
+      const today = new Date();
+      const dateStr = today.toISOString().split('T')[0];
+
+      // 插入步数记录
+      const stepRecord = new StepRecord(userId, dateStr, 500);
+      await this.insertStepRecord(stepRecord);
+
+      // 插入心率记录
+      const heartRateRecord = new HeartRateRecord(userId, dateStr, '08:00', 72);
+      await this.insertHeartRateRecord(heartRateRecord);
+
+      // 插入睡眠记录
+      const sleepRecord = new SleepRecord(userId, dateStr, 9.8 * 60); // 7.5小时转换为分钟
+      await this.insertSleepRecord(sleepRecord);
+
+      // 插入饮水记录
+      const waterRecord = new WaterRecord(userId, dateStr, '07:30', 4000); // 300ml
+      await this.insertWaterRecord(waterRecord);
+    } catch (error) {
+      hilog.error(0x0000, TAG, `Failed to insert test health data: ${error}`);
+    }
+  }
+
+  public async insertUser(user: User): Promise<number> {
     if (!this.rdbStore) {
       hilog.error(0x0000, TAG, 'RdbStore is not initialized');
-      return false;
+      return -1;
     }
 
     const valuesBucket: relationalStore.ValuesBucket = {
@@ -75,10 +135,10 @@ export class DatabaseHelper {
     try {
       const rowId = await this.rdbStore.insert('user', valuesBucket);
       hilog.info(0x0000, TAG, `Inserted user with rowId: ${rowId}`);
-      return rowId !== undefined && rowId >= 0;
+      return rowId;
     } catch (error) {
       hilog.error(0x0000, TAG, `Failed to insert user: ${error}`);
-      return false;
+      return -1;
     }
   }
 
@@ -110,20 +170,237 @@ export class DatabaseHelper {
     }
   }
 
-  public async validateUser(username: string, password: string): Promise<boolean> {
+  public async validateUser(username: string, password: string): Promise<User | null> {
     try {
       const users = await this.queryUserByUsername(username);
       if (users.length === 0) {
         hilog.info(0x0000, TAG, 'User not found');
-        return false;
+        return null;
       }
 
-      const isValid = users[0].password === password;
+      const user = users[0];
+      const isValid = user.password === password;
       hilog.info(0x0000, TAG, `User validation ${isValid ? 'successful' : 'failed'}`);
-      return isValid;
+      return isValid ? user : null;
     } catch (error) {
       hilog.error(0x0000, TAG, `Error validating user: ${error}`);
+      return null;
+    }
+  }
+
+  // 步数记录相关方法
+  public async insertStepRecord(record: StepRecord): Promise<boolean> {
+    if (!this.rdbStore) {
       return false;
+    }
+
+    const valuesBucket: relationalStore.ValuesBucket = {
+      'user_id': record.userId,
+      'date': record.date,
+      'steps': record.steps
+    };
+
+    try {
+      const rowId = await this.rdbStore.insert('step_record', valuesBucket);
+      return rowId >= 0;
+    } catch (error) {
+      hilog.error(0x0000, TAG, `Failed to insert step record: ${error}`);
+      return false;
+    }
+  }
+
+  public async getStepRecords(userId: number, date?: string): Promise<StepRecord[]> {
+    if (!this.rdbStore) {
+      return [];
+    }
+
+    try {
+      const predicates = new relationalStore.RdbPredicates('step_record');
+      predicates.equalTo('user_id', userId);
+      if (date) {
+        predicates.equalTo('date', date);
+      }
+
+      const resultSet = await this.rdbStore.query(predicates, ['id', 'user_id', 'date', 'steps']);
+      const records: StepRecord[] = [];
+
+      while (resultSet.goToNextRow()) {
+        const id = resultSet.getLong(resultSet.getColumnIndex('id'));
+        const userId = resultSet.getLong(resultSet.getColumnIndex('user_id'));
+        const date = resultSet.getString(resultSet.getColumnIndex('date'));
+        const steps = resultSet.getLong(resultSet.getColumnIndex('steps'));
+
+        records.push(new StepRecord(userId, date, steps, id));
+      }
+
+      resultSet.close();
+      return records;
+    } catch (error) {
+      hilog.error(0x0000, TAG, `Failed to query step records: ${error}`);
+      return [];
+    }
+  }
+
+  // 心率记录相关方法
+  public async insertHeartRateRecord(record: HeartRateRecord): Promise<boolean> {
+    if (!this.rdbStore) {
+      return false;
+    }
+
+    const valuesBucket: relationalStore.ValuesBucket = {
+      'user_id': record.userId,
+      'date': record.date,
+      'time': record.time,
+      'rate': record.rate
+    };
+
+    try {
+      const rowId = await this.rdbStore.insert('heart_rate_record', valuesBucket);
+      return rowId >= 0;
+    } catch (error) {
+      hilog.error(0x0000, TAG, `Failed to insert heart rate record: ${error}`);
+      return false;
+    }
+  }
+
+  public async getHeartRateRecords(userId: number, date?: string): Promise<HeartRateRecord[]> {
+    if (!this.rdbStore) {
+      return [];
+    }
+
+    try {
+      const predicates = new relationalStore.RdbPredicates('heart_rate_record');
+      predicates.equalTo('user_id', userId);
+      if (date) {
+        predicates.equalTo('date', date);
+      }
+
+      const resultSet = await this.rdbStore.query(predicates, ['id', 'user_id', 'date', 'time', 'rate']);
+      const records: HeartRateRecord[] = [];
+
+      while (resultSet.goToNextRow()) {
+        const id = resultSet.getLong(resultSet.getColumnIndex('id'));
+        const userId = resultSet.getLong(resultSet.getColumnIndex('user_id'));
+        const date = resultSet.getString(resultSet.getColumnIndex('date'));
+        const time = resultSet.getString(resultSet.getColumnIndex('time'));
+        const rate = resultSet.getLong(resultSet.getColumnIndex('rate'));
+
+        records.push(new HeartRateRecord(userId, date, time, rate, id));
+      }
+
+      resultSet.close();
+      return records;
+    } catch (error) {
+      hilog.error(0x0000, TAG, `Failed to query heart rate records: ${error}`);
+      return [];
+    }
+  }
+
+  // 睡眠记录相关方法
+  public async insertSleepRecord(record: SleepRecord): Promise<boolean> {
+    if (!this.rdbStore) {
+      return false;
+    }
+
+    const valuesBucket: relationalStore.ValuesBucket = {
+      'user_id': record.userId,
+      'date': record.date,
+      'duration': record.duration
+    };
+
+    try {
+      const rowId = await this.rdbStore.insert('sleep_record', valuesBucket);
+      return rowId >= 0;
+    } catch (error) {
+      hilog.error(0x0000, TAG, `Failed to insert sleep record: ${error}`);
+      return false;
+    }
+  }
+
+  public async getSleepRecords(userId: number, date?: string): Promise<SleepRecord[]> {
+    if (!this.rdbStore) {
+      return [];
+    }
+
+    try {
+      const predicates = new relationalStore.RdbPredicates('sleep_record');
+      predicates.equalTo('user_id', userId);
+      if (date) {
+        predicates.equalTo('date', date);
+      }
+
+      const resultSet = await this.rdbStore.query(predicates, ['id', 'user_id', 'date', 'duration']);
+      const records: SleepRecord[] = [];
+
+      while (resultSet.goToNextRow()) {
+        const id = resultSet.getLong(resultSet.getColumnIndex('id'));
+        const userId = resultSet.getLong(resultSet.getColumnIndex('user_id'));
+        const date = resultSet.getString(resultSet.getColumnIndex('date'));
+        const duration = resultSet.getLong(resultSet.getColumnIndex('duration'));
+
+        records.push(new SleepRecord(userId, date, duration, id));
+      }
+
+      resultSet.close();
+      return records;
+    } catch (error) {
+      hilog.error(0x0000, TAG, `Failed to query sleep records: ${error}`);
+      return [];
+    }
+  }
+
+  // 饮水记录相关方法
+  public async insertWaterRecord(record: WaterRecord): Promise<boolean> {
+    if (!this.rdbStore) {
+      return false;
+    }
+
+    const valuesBucket: relationalStore.ValuesBucket = {
+      'user_id': record.userId,
+      'date': record.date,
+      'time': record.time,
+      'amount': record.amount
+    };
+
+    try {
+      const rowId = await this.rdbStore.insert('water_record', valuesBucket);
+      return rowId >= 0;
+    } catch (error) {
+      hilog.error(0x0000, TAG, `Failed to insert water record: ${error}`);
+      return false;
+    }
+  }
+
+  public async getWaterRecords(userId: number, date?: string): Promise<WaterRecord[]> {
+    if (!this.rdbStore) {
+      return [];
+    }
+
+    try {
+      const predicates = new relationalStore.RdbPredicates('water_record');
+      predicates.equalTo('user_id', userId);
+      if (date) {
+        predicates.equalTo('date', date);
+      }
+
+      const resultSet = await this.rdbStore.query(predicates, ['id', 'user_id', 'date', 'time', 'amount']);
+      const records: WaterRecord[] = [];
+
+      while (resultSet.goToNextRow()) {
+        const id = resultSet.getLong(resultSet.getColumnIndex('id'));
+        const userId = resultSet.getLong(resultSet.getColumnIndex('user_id'));
+        const date = resultSet.getString(resultSet.getColumnIndex('date'));
+        const time = resultSet.getString(resultSet.getColumnIndex('time'));
+        const amount = resultSet.getLong(resultSet.getColumnIndex('amount'));
+
+        records.push(new WaterRecord(userId, date, time, amount, id));
+      }
+
+      resultSet.close();
+      return records;
+    } catch (error) {
+      hilog.error(0x0000, TAG, `Failed to query water records: ${error}`);
+      return [];
     }
   }
 
@@ -132,6 +409,139 @@ export class DatabaseHelper {
       this.rdbStore.close();
       this.rdbStore = null;
       hilog.info(0x0000, TAG, 'Database closed');
+    }
+  }
+  // Add these methods to DatabaseHelper class
+
+  // Check if the database has been updated since the last check
+  public async checkDatabaseUpdates(userId: number, lastCheckTime: number): Promise<boolean> {
+    if (!this.rdbStore) {
+      return false;
+    }
+
+    try {
+      // Check for any recent health data records
+      const stepsUpdated = await this.hasRecentUpdates('step_record', userId, lastCheckTime);
+      const heartRateUpdated = await this.hasRecentUpdates('heart_rate_record', userId, lastCheckTime);
+      const sleepUpdated = await this.hasRecentUpdates('sleep_record', userId, lastCheckTime);
+      const waterUpdated = await this.hasRecentUpdates('water_record', userId, lastCheckTime);
+
+      return stepsUpdated || heartRateUpdated || sleepUpdated || waterUpdated;
+    } catch (error) {
+      hilog.error(0x0000, TAG, `Failed to check for database updates: ${error}`);
+      return false;
+    }
+  }
+
+  // Helper method to check if specific table has recent updates
+  private async hasRecentUpdates(tableName: string, userId: number, lastCheckTime: number): Promise<boolean> {
+    if (!this.rdbStore) {
+      return false;
+    }
+
+    try {
+      // In a real app, you would have a lastUpdated timestamp column in each table
+      // For now, we'll consider any records for today as potentially new updates
+      const today = new Date().toISOString().split('T')[0];
+
+      const predicates = new relationalStore.RdbPredicates(tableName);
+      predicates.equalTo('user_id', userId);
+      predicates.equalTo('date', today);
+
+      const resultSet = await this.rdbStore.query(predicates, ['id']);
+      const hasUpdates = resultSet.rowCount > 0;
+      resultSet.close();
+
+      return hasUpdates;
+    } catch (error) {
+      hilog.error(0x0000, TAG, `Failed to check for updates in ${tableName}: ${error}`);
+      return false;
+    }
+  }
+
+  // Add method to update health data
+  public async updateStepRecord(record: StepRecord): Promise<boolean> {
+    if (!this.rdbStore || !record.id) {
+      return false;
+    }
+
+    try {
+      const valuesBucket: relationalStore.ValuesBucket = {
+        'steps': record.steps
+      };
+
+      const predicates = new relationalStore.RdbPredicates('step_record');
+      predicates.equalTo('id', record.id);
+
+      const count = await this.rdbStore.update(valuesBucket, predicates);
+      return count > 0;
+    } catch (error) {
+      hilog.error(0x0000, TAG, `Failed to update step record: ${error}`);
+      return false;
+    }
+  }
+
+  // Similar update methods for other health data types
+  public async updateHeartRateRecord(record: HeartRateRecord): Promise<boolean> {
+    if (!this.rdbStore || !record.id) {
+      return false;
+    }
+
+    try {
+      const valuesBucket: relationalStore.ValuesBucket = {
+        'rate': record.rate
+      };
+
+      const predicates = new relationalStore.RdbPredicates('heart_rate_record');
+      predicates.equalTo('id', record.id);
+
+      const count = await this.rdbStore.update(valuesBucket, predicates);
+      return count > 0;
+    } catch (error) {
+      hilog.error(0x0000, TAG, `Failed to update heart rate record: ${error}`);
+      return false;
+    }
+  }
+
+  public async updateSleepRecord(record: SleepRecord): Promise<boolean> {
+    if (!this.rdbStore || !record.id) {
+      return false;
+    }
+
+    try {
+      const valuesBucket: relationalStore.ValuesBucket = {
+        'duration': record.duration
+      };
+
+      const predicates = new relationalStore.RdbPredicates('sleep_record');
+      predicates.equalTo('id', record.id);
+
+      const count = await this.rdbStore.update(valuesBucket, predicates);
+      return count > 0;
+    } catch (error) {
+      hilog.error(0x0000, TAG, `Failed to update sleep record: ${error}`);
+      return false;
+    }
+  }
+
+  public async updateWaterRecord(record: WaterRecord): Promise<boolean> {
+    if (!this.rdbStore || !record.id) {
+      return false;
+    }
+
+    try {
+      const valuesBucket: relationalStore.ValuesBucket = {
+        'amount': record.amount
+      };
+
+      const predicates = new relationalStore.RdbPredicates('water_record');
+      predicates.equalTo('id', record.id);
+
+      const count = await this.rdbStore.update(valuesBucket, predicates);
+      return count > 0;
+    } catch (error) {
+      hilog.error(0x0000, TAG, `Failed to update water record: ${error}`);
+      return false;
     }
   }
 }

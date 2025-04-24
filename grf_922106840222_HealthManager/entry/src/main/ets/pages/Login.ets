@@ -96,7 +96,8 @@ struct LoginPage {
     router.pushUrl({
       url: 'pages/mainHome',
       params: {
-        username: this.username
+        username: this.username,
+        newLogin: true  // 添加新登录标记
       }
     }, router.RouterMode.Standard, (err) => {
       if (err) {
