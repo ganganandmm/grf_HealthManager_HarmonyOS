@@ -15,10 +15,21 @@ const STORE_CONFIG: StoreConfig = {
   securityLevel: relationalStore.SecurityLevel.S1
 };
 
+// 更新SQL_CREATE_USER_TABLE语句，添加新的字段
 const SQL_CREATE_USER_TABLE = 'CREATE TABLE IF NOT EXISTS user ' +
   '(id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
   'username TEXT NOT NULL, ' +
-  'password TEXT NOT NULL)';
+  'password TEXT NOT NULL, ' +
+  'age INTEGER, ' +
+  'gender TEXT, ' +
+  'phone TEXT, ' +
+  'email TEXT, ' +
+  'height REAL, ' +
+  'weight REAL, ' +
+  'emergency_contact TEXT, ' +
+  'emergency_phone TEXT, ' +
+  'medical_history TEXT, ' +
+  'avatar_path TEXT)';
 
 const SQL_CREATE_STEP_TABLE = 'CREATE TABLE IF NOT EXISTS step_record ' +
   '(id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
@@ -502,7 +513,190 @@ export class DatabaseHelper {
       return false;
     }
   }
+  // 在 DatabaseHelper 类中添加以下方法
 
+  // 在 DatabaseHelper 类中添加以下方法
+
+  public async updateUserInfo(user: User): Promise<boolean> {
+    if (!this.rdbStore || !user.id) {
+      hilog.error(0x0000, TAG, 'RdbStore is not initialized or user id is invalid');
+      return false;
+    }
+
+    // 构建更新的值，只更新非密码字段，并处理undefined值
+    const valuesBucket: relationalStore.ValuesBucket = {};
+
+    // 不更新 username 和 password，这些字段不应该在个人信息编辑中修改
+
+    // 对于数值类型的字段，确保传入正确的类型或null
+    if (user.age !== undefined) {
+      valuesBucket.age = user.age;
+    } else {
+      valuesBucket.age = null;
+    }
+
+    if (user.gender !== undefined) {
+      valuesBucket.gender = user.gender;
+    } else {
+      valuesBucket.gender = null;
+    }
+
+    if (user.phone !== undefined) {
+      valuesBucket.phone = user.phone;
+    } else {
+      valuesBucket.phone = null;
+    }
+
+    if (user.email !== undefined) {
+      valuesBucket.email = user.email;
+    } else {
+      valuesBucket.email = null;
+    }
+
+    if (user.height !== undefined) {
+      valuesBucket.height = user.height;
+    } else {
+      valuesBucket.height = null;
+    }
+
+    if (user.weight !== undefined) {
+      valuesBucket.weight = user.weight;
+    } else {
+      valuesBucket.weight = null;
+    }
+
+    if (user.emergencyContact !== undefined) {
+      valuesBucket.emergency_contact = user.emergencyContact;
+    } else {
+      valuesBucket.emergency_contact = null;
+    }
+
+    if (user.emergencyPhone !== undefined) {
+      valuesBucket.emergency_phone = user.emergencyPhone;
+    } else {
+      valuesBucket.emergency_phone = null;
+    }
+
+    if (user.medicalHistory !== undefined) {
+      valuesBucket.medical_history = user.medicalHistory;
+    } else {
+      valuesBucket.medical_history = null;
+    }
+
+    if (user.avatarPath !== undefined) {
+      valuesBucket.avatar_path = user.avatarPath;
+    } else {
+      valuesBucket.avatar_path = null;
+    }
+
+    try {
+      const predicates = new relationalStore.RdbPredicates('user');
+      predicates.equalTo('id', user.id);
+
+      hilog.info(0x0000, TAG, `Updating user info with values: ${JSON.stringify(valuesBucket)}`);
+
+      const rowCount = await this.rdbStore.update(valuesBucket, predicates);
+      hilog.info(0x0000, TAG, `Updated user info with ${rowCount} rows affected`);
+      return rowCount > 0;
+    } catch (error) {
+      hilog.error(0x0000, TAG, `Failed to update user info: ${error}`);
+      hilog.error(0x0000, TAG, `ValuesBucket: ${JSON.stringify(valuesBucket)}`);
+      return false;
+    }
+  }
+
+  // 获取用户详细信息
+  public async getUserById(userId: number): Promise<User | null> {
+    if (!this.rdbStore) {
+      hilog.error(0x0000, TAG, 'RdbStore is not initialized');
+      return null;
+    }
+
+    try {
+      const predicates = new relationalStore.RdbPredicates('user');
+      predicates.equalTo('id', userId);
+
+      const resultSet = await this.rdbStore.query(predicates, [
+        'id', 'username', 'password', 'age', 'gender', 'phone', 'email',
+        'height', 'weight', 'emergency_contact', 'emergency_phone',
+        'medical_history', 'avatar_path'
+      ]);
+
+      if (resultSet.goToNextRow()) {
+        const id = resultSet.getLong(resultSet.getColumnIndex('id'));
+        const username = resultSet.getString(resultSet.getColumnIndex('username'));
+        const password = resultSet.getString(resultSet.getColumnIndex('password'));
+        const age = resultSet.isColumnNull(resultSet.getColumnIndex('age'))
+          ? undefined
+          : resultSet.getLong(resultSet.getColumnIndex('age'));
+        const gender = resultSet.isColumnNull(resultSet.getColumnIndex('gender'))
+          ? undefined
+          : resultSet.getString(resultSet.getColumnIndex('gender'));
+        const phone = resultSet.isColumnNull(resultSet.getColumnIndex('phone'))
+          ? undefined
+          : resultSet.getString(resultSet.getColumnIndex('phone'));
+        const email = resultSet.isColumnNull(resultSet.getColumnIndex('email'))
+          ? undefined
+          : resultSet.getString(resultSet.getColumnIndex('email'));
+        const height = resultSet.isColumnNull(resultSet.getColumnIndex('height'))
+          ? undefined
+          : resultSet.getDouble(resultSet.getColumnIndex('height'));
+        const weight = resultSet.isColumnNull(resultSet.getColumnIndex('weight'))
+          ? undefined
+          : resultSet.getDouble(resultSet.getColumnIndex('weight'));
+        const emergencyContact = resultSet.isColumnNull(resultSet.getColumnIndex('emergency_contact'))
+          ? undefined
+          : resultSet.getString(resultSet.getColumnIndex('emergency_contact'));
+        const emergencyPhone = resultSet.isColumnNull(resultSet.getColumnIndex('emergency_phone'))
+          ? undefined
+          : resultSet.getString(resultSet.getColumnIndex('emergency_phone'));
+        const medicalHistory = resultSet.isColumnNull(resultSet.getColumnIndex('medical_history'))
+          ? undefined
+          : resultSet.getString(resultSet.getColumnIndex('medical_history'));
+        const avatarPath = resultSet.isColumnNull(resultSet.getColumnIndex('avatar_path'))
+          ? undefined
+          : resultSet.getString(resultSet.getColumnIndex('avatar_path'));
+
+        resultSet.close();
+
+        const user = new User(
+          username,
+          password,
+          id,
+          age,
+          gender,
+          phone,
+          email,
+          height,
+          weight,
+          emergencyContact,
+          emergencyPhone,
+          medicalHistory,
+          avatarPath
+        );
+
+        hilog.info(0x0000, TAG, `Retrieved user: ${JSON.stringify({
+          id: user.id,
+          username: user.username,
+          age: user.age,
+          gender: user.gender,
+          phone: user.phone,
+          email: user.email,
+          height: user.height,
+          weight: user.weight
+        })}`);
+
+        return user;
+      }
+
+      resultSet.close();
+      hilog.info(0x0000, TAG, `No user found for id: ${userId}`);
+      return null;
+    } catch (error) {
+      hilog.error(0x0000, TAG, `Failed to get user by id: ${error}`);
+      return null;
+    }
+  }
   public async updateSleepRecord(record: SleepRecord): Promise<boolean> {
     if (!this.rdbStore || !record.id) {
       return false;
