@@ -60,7 +60,7 @@ const SQL_CREATE_WATER_TABLE = 'CREATE TABLE IF NOT EXISTS water_record ' +
   'time TEXT NOT NULL, ' +
   'amount INTEGER NOT NULL, ' +
   'FOREIGN KEY (user_id) REFERENCES user(id))';
-
+@Observed
 export class DatabaseHelper {
   private rdbStore: relationalStore.RdbStore | null = null;
   private context: Context;

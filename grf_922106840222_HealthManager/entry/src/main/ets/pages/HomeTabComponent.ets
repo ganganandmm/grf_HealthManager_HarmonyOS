@@ -1,21 +1,13 @@
+// HomeTabComponent.ets
+import { HeartRateRecord, WaterRecord } from '../common/HealthDataModel';
+import promptAction from '@ohos.promptAction';
 import router from '@ohos.router';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { JSON } from '@kit.ArkTS';
-import common from '@ohos.app.ability.common';
-import { DatabaseHelper } from '../common/DatabaseHelper';
-import { StepRecord, HeartRateRecord, SleepRecord, WaterRecord } from '../common/HealthDataModel';
-import Want from '@ohos.app.ability.Want'
-import {TAG} from './mainHome'
-interface HealthData {
-  userId: number;
-  username: string;
-  date: string;
-  steps: number;
-  heartRate: number;
-  sleepHours: number;
-  waterAmount: number;
-}
-interface RouterParams {
+import { RefreshDataFunc, ShareHealthDataFunc } from './FunctionInterfaces';
+
+const TAG: string = 'HomeTab';
+
+interface GeneratedObjectLiteralInterface_1 {
   username: string;
   userId: string;
   steps: string;
@@ -24,113 +16,28 @@ interface RouterParams {
   waterAmount: string;
   date: string;
 }
+
 @Component
-struct HomePageContent {
-  @State username: string = '';
-  @State userId: number = -1;
-  @State steps: number = 0;
-  @State heartRate: number = 0;
-  @State sleepHours: number = 0;
-  @State waterAmount: number = 0;
-  @State waterRecords: WaterRecord[] = [];
-  @State currentDate: string = new Date().toISOString().split('T')[0];
-  @State receivedHealthData: string = '';
-  @State currentIndex: number = 0;
-  @State isNewLogin: boolean = false; // Track if this is a new login
-  @State lastUpdateTime: number = 0; // Track the last update time
-  @State tempWaterAmount: number = 0; // Temporary variable for water input
-  private dbHelper: DatabaseHelper = new DatabaseHelper(getContext(this));
-  private context = getContext(this) as common.UIAbilityContext;
-  private refreshInterval: number = 0; // For periodic refresh
-  @State heartRateRecords: HeartRateRecord[] = [];//心率记录
-  async shareHealthData() {
-    try {
-      // Before sharing, refresh data to ensure it's up to date
-      await this.refreshData();
+export struct HomeTabComponent {
+  @Link username: string;
+  @Link userId: number;
+  @Link steps: number;
+  @Link heartRate: number;
+  @Link sleepHours: number;
+  @Link waterAmount: number;
+  @Link waterRecords: WaterRecord[];
+  @Link currentDate: string;
+  @Link receivedHealthData: string;
+  @Link heartRateRecords: HeartRateRecord[];
+  @Link lastUpdateTime: number;
 
-      // 创建健康数据对象
-      const healthData: HealthData = {
-        userId: this.userId,
-        username: this.username,
-        date: this.currentDate,
-        steps: this.steps,
-        heartRate: this.heartRate,
-        sleepHours: this.sleepHours,
-        waterAmount: this.waterAmount
-      };
+  // 需要提供的方法
+  @Prop refreshDataFunc: RefreshDataFunc;
+  @Prop shareHealthDataFunc: ShareHealthDataFunc;
 
-      // 将数据转换为JSON字符串
-      const dataString = JSON.stringify(healthData);
-      const want: Want = {
-        bundleName: 'com.example.target', // Replace with target app
-        abilityName: 'EntryAbility',      // Replace with target ability
-        moduleName: 'entry',              // Optional module name
-        parameters: {                     // Use a plain object for parameters
-          healthData: dataString
-        }
-      };
-      this.context.startAbility(want)
-        .then(() => {
-          hilog.info(0x0000, TAG, 'Health data shared successfully');
-        })
-        .catch((err: Error) => {
-          hilog.error(0x0000, TAG, `Failed to start ability: ${err.message}`);
-        });
-    } catch (error) {
-      const errorMessage: string = error instanceof Error ? error.message : String(error);
-      hilog.error(0x0000, TAG, `Failed to share health data: ${errorMessage}`);
-    }
-  }
-  async refreshData() {
-    try {
-      hilog.info(0x0000, TAG, 'Checking for data updates');
-      if (this.userId > 0) {
-        await this.loadHealthData();
-      }
-    } catch (error) {
-      const errorMessage: string = error instanceof Error ? error.message : String(error);
-      hilog.error(0x0000, TAG, `Failed to refresh data: ${errorMessage}`);
-    }
-  }
-  async loadHealthData() {
-    try {
-      const stepRecords = await this.dbHelper.getStepRecords(this.userId, this.currentDate);
-      if (stepRecords.length > 0) {
-        this.steps = stepRecords[0].steps;
-      } else {
-        this.steps = 0;
-      }
-
-      const heartRateRecords = await this.dbHelper.getHeartRateRecords(this.userId, this.currentDate);
-      this.heartRateRecords = heartRateRecords;
-
-      if (heartRateRecords.length > 0) {
-        this.heartRate = heartRateRecords[heartRateRecords.length - 1].rate;
-      } else {
-        this.heartRate = 0;
-      }
-
-      const sleepRecords = await this.dbHelper.getSleepRecords(this.userId, this.currentDate);
-      if (sleepRecords.length > 0) {
-        this.sleepHours = sleepRecords[0].duration / 60;
-      } else {
-        this.sleepHours = 0;
-      }
-
-      const waterRecords = await this.dbHelper.getWaterRecords(this.userId, this.currentDate);
-      this.waterRecords = waterRecords;
-      this.waterAmount = waterRecords.reduce((total, record) => total + record.amount, 0);
-
-      this.lastUpdateTime = Date.now();
-      hilog.info(0x0000, TAG, 'Health data loaded successfully');
-    } catch (error) {
-      const errorMessage: string = error instanceof Error ? error.message : String(error);
-      hilog.error(0x0000, TAG, `Failed to load health data: ${errorMessage}`);
-    }
-  }
   ClickJumpToShowData() {
-    this.refreshData().then(() => {
-      const routerParams: RouterParams = {
+    this.refreshDataFunc.refreshData().then(() => {
+      const routerParams: GeneratedObjectLiteralInterface_1 = {
         username: this.username,
         userId: this.userId.toString(),
         steps: this.steps.toString(),
@@ -152,6 +59,7 @@ struct HomePageContent {
       });
     });
   }
+
   build() {
     Scroll() {
       Column() {
@@ -235,7 +143,7 @@ struct HomePageContent {
             .backgroundColor('#27AE60')
             .margin({ right: 10 })
             .onClick(() => {
-              this.shareHealthData();
+              this.shareHealthDataFunc.shareHealthData();
             })
 
           Button('查看详细数据')
@@ -313,12 +221,10 @@ struct HomePageContent {
         .backgroundColor('#f7f7f7')
         .margin({ top: 10, bottom: 20 })
 
-
         Divider()
           .width('90%')
           .height(1)
           .backgroundColor('#ddd')
-
 
         //心率记录
         Column() {
@@ -355,7 +261,6 @@ struct HomePageContent {
         .borderRadius(8)
         .backgroundColor('#f7f7f7')
         .margin({ top: 10, bottom: 20 })
-
       }
       .width('100%')
       .alignItems(HorizontalAlign.Center)
@@ -364,12 +269,10 @@ struct HomePageContent {
     .onScrollFrameBegin((offset: number) => {
       // Implement pull-to-refresh functionality
       if (offset <= -100) { // If pulled down more than 100px
-        this.refreshData();
+        this.refreshDataFunc.refreshData();
         return { offsetRemain: 0 };
       }
       return { offsetRemain: offset };
     })
   }
 }
-
-export { HomePageContent };
