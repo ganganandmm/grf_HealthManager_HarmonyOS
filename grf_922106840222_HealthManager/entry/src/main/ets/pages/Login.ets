@@ -1,6 +1,4 @@
 import router from '@ohos.router';
-import { AddFormMenuItem } from '@kit.ArkUI';
-import { formBindingData, formProvider } from '@kit.FormKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import promptAction from '@ohos.promptAction';
 import { DatabaseHelper } from '../common/DatabaseHelper';

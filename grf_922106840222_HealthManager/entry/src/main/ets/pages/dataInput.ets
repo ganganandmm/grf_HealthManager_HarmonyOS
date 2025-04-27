@@ -21,13 +21,10 @@ interface HealthData {
   waterAmount: number;
 }
 
-// Define explicit type for Want parameters without indexed signature
 interface WantParams {
   healthData?: string;
-  // Add other specific parameters as needed
 }
 
-// Define explicit type for ability parameters
 interface AbilityStartParams {
   bundleName: string;
   abilityName: string;
@@ -35,7 +32,6 @@ interface AbilityStartParams {
   parameters?: WantParams;
 }
 
-// Define router parameters type
 interface RouterParams {
   username: string;
   userId: string;
