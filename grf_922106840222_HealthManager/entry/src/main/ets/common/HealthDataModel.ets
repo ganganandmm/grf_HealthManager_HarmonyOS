@@ -10,6 +10,7 @@ export class StepRecord {
     this.date = date;
     this.steps = steps;
     this.id = id;
+
   }
 }
 

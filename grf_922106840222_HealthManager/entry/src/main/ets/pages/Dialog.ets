@@ -120,6 +120,8 @@ export  struct WaterInputDialog {
   private removeWaterInputRow!: (index: number) => void; // Add the ! operator
   private saveMultiWaterRecords!: () => Promise<void>; // Add the ! operator
 
+
+  @State index : number = 0;
   aboutToAppear() {
     // 确保至少有一行输入
     if (this.waterInputTimes.length === 0) {
@@ -217,5 +219,120 @@ export  struct WaterInputDialog {
     .width('100%')
     .padding(20)
     .backgroundColor('#f5f5f5')
+  }
+}
+@CustomDialog
+export struct StepInputDialog {
+  @Link stepInputTimes: string[];
+  @Link stepInputValues: string[];
+  @State index : number = 0;
+  addStepInputRow!: () => void;
+  removeStepInputRow!: (index: number) => void;
+  saveMultiStepRecords!: () => void;
+
+  controller?: CustomDialogController;
+
+  build() {
+    Column() {
+      Text('批量步数录入')
+        .fontSize(20)
+        .fontWeight(FontWeight.Bold)
+        .margin({ top: 10, bottom: 20 })
+
+      Scroll() {
+        Column() {
+          ForEach(this.stepInputTimes, () => {
+            Row() {
+              // 使用TimePicker替代TextClock
+              TimePicker({
+                selected: new Date(`2023-01-01T${this.stepInputTimes[this.index] || '08:00'}:00`)
+              })
+                .useMilitaryTime(true) // 使用24小时制
+                .onChange((value: TimePickerResult) => {
+                  const hours = String(value.hour).padStart(2, '0');
+                  const minutes = String(value.minute).padStart(2, '0');
+                  this.stepInputTimes[this.index] = `${hours}:${minutes}`;
+                })
+                .margin({ right: 10 })
+                .width('40%')
+
+              // Step count input
+              TextInput({
+                text: this.stepInputValues[this.index],
+                placeholder: '步数'
+              })
+                .width('40%')
+                .type(InputType.Number)
+                .onChange((value: string) => {
+                  this.stepInputValues[this.index] = value;
+                })
+
+              // Remove button
+              Button({
+                type: ButtonType.Circle,
+                stateEffect: true
+              }) {
+                Image($r('app.media.delete'))
+                  .width(20)
+                  .height(20)
+              }
+              .width(28)
+              .height(28)
+              .backgroundColor('#f5f5f5')
+              .margin({ left: 10 })
+              .onClick(() => {
+                this.removeStepInputRow(0);
+              })
+            }
+            .width('100%')
+            .justifyContent(FlexAlign.SpaceBetween)
+            .alignItems(VerticalAlign.Center)
+            .padding(10)
+            .margin({ bottom: 10 })
+            .borderRadius(8)
+            .backgroundColor('#f0f0f0')
+          })
+        }
+        .width('100%')
+      }
+      .height('60%')
+      .width('100%')
+
+      // Add new row button
+      Button('添加更多记录')
+        .width('100%')
+        .height(40)
+        .margin({ top: 10, bottom: 20 })
+        .onClick(() => {
+          this.addStepInputRow();
+        })
+
+      // Action buttons
+      Row() {
+        Button('取消')
+          .width('45%')
+          .height(40)
+          .backgroundColor('#E0E0E0')
+          .fontColor('#333')
+          .onClick(() => {
+            this.controller?.close();
+          })
+
+        Button('保存')
+          .width('45%')
+          .height(40)
+          .backgroundColor('#1698CE')
+          .onClick(() => {
+            this.saveMultiStepRecords();
+            this.controller?.close();
+          })
+      }
+      .width('100%')
+      .justifyContent(FlexAlign.SpaceBetween)
+    }
+    .width('90%')
+    .padding(20)
+    .borderRadius(16)
+    .backgroundColor(Color.White)
   }
 }

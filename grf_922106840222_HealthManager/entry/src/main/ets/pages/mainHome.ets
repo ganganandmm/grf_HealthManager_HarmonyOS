@@ -6,9 +6,11 @@ import { DatabaseHelper } from '../common/DatabaseHelper';
 import { StepRecord, HeartRateRecord, SleepRecord, WaterRecord } from '../common/HealthDataModel';
 import Want from '@ohos.app.ability.Want'
 import promptAction from '@ohos.promptAction';
-import {HeartRateInputDialog, WaterInputDialog} from './Dialog'
+import {HeartRateInputDialog, StepInputDialog, WaterInputDialog} from './Dialog'
+import {HealthDataCard,HeartRateRecordItem,WaterRecordItem,DataInputRow} from './myComponents'
+import Notification from '@ohos.notification';
+import notification from '@ohos.notificationManager'
 export const TAG: string = 'mainHome';
-
 @Extend(Text) function titleText() {
   .fontSize(20)
   .fontWeight(FontWeight.Bold)
@@ -96,108 +98,7 @@ interface ChartDataItem {
   label: string;
   value: number;
 }
-@Component
-struct HealthDataCard {
-  @Prop title: string;
-  @Prop value: string;
-  @Prop unit: string = '';
-  @Prop color: string = '#1698CE';
 
-  build() {
-    Column() {
-      Text(this.title)
-        .labelText()
-      Text(this.value + (this.unit ? ' ' + this.unit : ''))
-        .valueText()
-        .fontColor(this.color)
-    }
-    .width('45%')
-    .padding(10)
-    .borderRadius(8)
-    .backgroundColor('#f7f7f7')
-  }
-}
-
-// 心率记录项组件
-@Component
-struct HeartRateRecordItem {
-  @Prop record!: HeartRateRecord;
-
-  build() {
-    Row() {
-      Text(this.record.time)
-        .fontSize(16)
-        .width('40%')
-      Text(`${this.record.rate} 次/分`)
-        .fontSize(16)
-        .fontColor('#3498DB')
-        .width('60%')
-    }
-    .width('100%')
-    .padding(10)
-    .justifyContent(FlexAlign.SpaceBetween)
-  }
-}
-@Component
-struct WaterRecordItem {
-  @Prop record!: WaterRecord;
-
-  build() {
-    Row() {
-      Text(this.record.time)
-        .fontSize(16)
-        .width('40%')
-      Text(`${this.record.amount} ml`)
-        .fontSize(16)
-        .fontColor('#3498DB')
-        .width('60%')
-    }
-    .width('100%')
-    .padding(10)
-    .justifyContent(FlexAlign.SpaceBetween)
-  }
-}
-@Component
-struct DataInputRow {
-  @Prop title: string = '';
-  @Prop placeholder: string = '';
-  @Prop unit: string = '';
-  @Prop buttonText: string = '';
-  @Prop buttonColor: string = '#3498DB';
-  @State inputValue: string = '';
-  onInputChange: (value: string) => void = () => {};  // 提供默认空函数
-  onButtonClick: () => void = () => {};  // 提供默认空函数
-
-  build() {
-    Row() {
-      TextInput({ text: this.inputValue, placeholder: this.placeholder })
-        .type(InputType.Number)
-        .width('45%')
-        .height(50)
-        .onChange((value: string) => {
-          this.inputValue = value;
-          this.onInputChange(value);
-        })
-
-      Text(this.unit)
-        .fontSize(16)
-        .fontColor('#666')
-        .width('15%')
-        .margin({ left: 10, right: 10 })
-
-      Button(this.buttonText)
-        .width('40%')
-        .height(50)
-        .backgroundColor(this.buttonColor)
-        .margin({ bottom: 10 })
-        .onClick(() => {
-          this.onButtonClick();
-        })
-    }
-    .width('100%')
-    .margin({ bottom: 10 })
-  }
-}
 @Entry
 @Component
 struct MainHome {
@@ -232,10 +133,12 @@ struct MainHome {
   @State totalSteps: number = 0;
   @State avgDailySteps: number = 0;
   @State maxDisplayValue: number = 15000; // 图表纵坐标最大值
-
   @State canvasContext: CanvasRenderingContext2D | null = null;
   @State selectedDate: Date = new Date(); // 当前选中的日期
   @State isCalendarVisible: boolean = false; // 控制日历显示与隐藏
+
+  @State stepInputTimes: string[] = ['08:00']; // Default time
+  @State stepInputValues: string[] = ['0']; // Default step value
 
   heartRateDialogController: CustomDialogController = new CustomDialogController({
     builder: HeartRateInputDialog({
@@ -262,7 +165,18 @@ struct MainHome {
     alignment: DialogAlignment.Center,
     customStyle: true
   });
-
+  stepDialogController: CustomDialogController = new CustomDialogController({
+    builder: StepInputDialog({
+      stepInputTimes: this.stepInputTimes,
+      stepInputValues: this.stepInputValues,
+      addStepInputRow: this.addStepInputRow.bind(this),
+      removeStepInputRow: this.removeStepInputRow.bind(this),
+      saveMultiStepRecords: this.saveMultiStepRecords.bind(this)
+    }),
+    autoCancel: false,
+    alignment: DialogAlignment.Center,
+    customStyle: true
+  });
   aboutToAppear() {
     const params = router.getParams() as RouteParams;
     if (params) {
@@ -291,6 +205,7 @@ struct MainHome {
     this.dbHelper.closeDatabase();
     this.heartRateDialogController.close();
     this.waterDialogController.close();
+    this.stepDialogController.close(); // Add this line
   }
 
   async initData() {
@@ -316,7 +231,7 @@ struct MainHome {
           }
         }
         await this.loadHealthData();
-        await this.updateStepChartData(); // 加载步数图表数据
+        await this.updateStepChartData();
       }
 
       this.isNewLogin = false;
@@ -350,7 +265,6 @@ struct MainHome {
   }
 
   async loadHealthData() {
-    // 原有方法保持不变
     try {
       const stepRecords = await this.dbHelper.getStepRecords(this.userId, this.currentDate);
       if (stepRecords.length > 0) {
@@ -651,6 +565,18 @@ struct MainHome {
       this.waterInputValues.splice(index, 1);
     }
   }
+  addStepInputRow() {
+    this.stepInputTimes.push('');
+    this.stepInputValues.push('');
+  }
+
+  // Remove step input row
+  removeStepInputRow(index: number) {
+    if (this.stepInputTimes.length > 1) {
+      this.stepInputTimes.splice(index, 1);
+      this.stepInputValues.splice(index, 1);
+    }
+  }
 
   // 批量保存心率数据
   async saveMultiHeartRates() {
@@ -666,19 +592,16 @@ struct MainHome {
         const time = this.heartRateInputTimes[i].trim();
         const rate = parseInt(this.heartRateInputValues[i]) || 0;
 
-        // 验证时间格式和心率值
         if (!time || !this.isValidTimeFormat(time) || rate <= 0) {
-          continue; // 跳过无效输入
+          continue;
         }
 
-        // 创建并保存心率记录
         const record = new HeartRateRecord(this.userId, this.currentDate, time, rate);
         if (await this.dbHelper.insertHeartRateRecord(record)) {
           successCount++;
         }
       }
 
-      // 显示结果消息
       if (successCount > 0) {
         promptAction.showToast({ message: `成功保存 ${successCount} 条心率记录` });
         this.refreshData(); // 刷新数据
@@ -692,33 +615,26 @@ struct MainHome {
     }
   }
 
-  // 批量保存饮水数据
   async saveMultiWaterRecords() {
     if (this.userId <= 0) {
       promptAction.showToast({ message: '用户ID无效' });
       return;
     }
-
     try {
       let successCount = 0;
       // 遍历所有输入行
       for (let i = 0; i < this.waterInputTimes.length; i++) {
         const time = this.waterInputTimes[i].trim();
         const amount = parseInt(this.waterInputValues[i]) || 0;
-
-        // 验证时间格式和饮水量
         if (!time || !this.isValidTimeFormat(time) || amount <= 0) {
           continue; // 跳过无效输入
         }
-
-        // 创建并保存饮水记录
         const record = new WaterRecord(this.userId, this.currentDate, time, amount);
         if (await this.dbHelper.insertWaterRecord(record)) {
           successCount++;
         }
       }
 
-      // 显示结果消息
       if (successCount > 0) {
         promptAction.showToast({ message: `成功保存 ${successCount} 条饮水记录` });
         this.refreshData(); // 刷新数据
@@ -731,8 +647,57 @@ struct MainHome {
       promptAction.showToast({ message: '保存饮水记录失败' });
     }
   }
+  async saveMultiStepRecords() {
+    if (this.userId <= 0) {
+      promptAction.showToast({ message: '用户ID无效' });
+      return;
+    }
+    try {
+      let successCount = 0;
+      let totalSteps = 0;
+      for (let i = 0; i < this.stepInputTimes.length; i++) {
+        const time = this.stepInputTimes[i].trim();
+        const steps = parseInt(this.stepInputValues[i]) || 0;
 
-  // 验证时间格式是否为 HH:MM
+        // Validate time format and step count
+        if (!time || !this.isValidTimeFormat(time) || steps <= 0) {
+          continue; // Skip invalid inputs
+        }
+        totalSteps += steps;
+        const record = new StepRecord(this.userId, this.currentDate, steps);
+        if (await this.dbHelper.insertStepRecord(record)) {
+          successCount++;
+        }
+      }
+
+
+      if (successCount > 0) {
+        // Query existing step record
+        const stepRecords = await this.dbHelper.getStepRecords(this.userId, this.currentDate);
+        if (stepRecords.length > 0) {
+          // Update existing record with new total
+          const record = stepRecords[0];
+          record.steps = totalSteps;
+          if (await this.dbHelper.updateStepRecord(record)) {
+            promptAction.showToast({ message: `成功保存 ${successCount} 条步数记录，总步数: ${totalSteps}` });
+          }
+        } else {
+          // Create new record with total
+          const record = new StepRecord(this.userId, this.currentDate, totalSteps);
+          if (await this.dbHelper.insertStepRecord(record)) {
+            promptAction.showToast({ message: `成功保存 ${successCount} 条步数记录，总步数: ${totalSteps}` });
+          }
+        }
+        this.refreshData(); // Refresh data
+      } else {
+        promptAction.showToast({ message: '没有有效的步数记录被保存' });
+      }
+    } catch (error) {
+      const errorMessage: string = error instanceof Error ? error.message : String(error);
+      hilog.error(0x0000, TAG, `Failed to save step records: ${errorMessage}`);
+      promptAction.showToast({ message: '保存步数记录失败' });
+    }
+  }
   isValidTimeFormat(time: string): boolean {
     const regex = /^([01]?[0-9]|2[0-3]):([0-5][0-9])$/;
     return regex.test(time);
@@ -740,16 +705,12 @@ struct MainHome {
 
   build() {
     Column() {
-      // 标题和用户信息
       Row() {
         Text("个人健康管理系统")
           .fontSize(24)
           .fontColor('#1698CE')
           .fontWeight(FontWeight.Bold)
-
         Blank()
-
-        // 显示当前登录用户名
         if (this.username) {
           Text(`欢迎，${this.username}`)
             .fontSize(18)
@@ -760,7 +721,6 @@ struct MainHome {
       .height('10%')
       .padding({ top: 10, bottom: 10 })
 
-      // 分割线
       Divider()
         .width('90%')
         .height(1)
@@ -774,7 +734,6 @@ struct MainHome {
               Text('今日健康数据概览')
                 .titleText()
 
-              // 数据卡片 - 使用自定义组件
               Row() {
                 HealthDataCard({
                   title: '步数',
@@ -944,7 +903,7 @@ struct MainHome {
                       .width('40%')
                       .height(50)
                       .backgroundColor('#1698CE')
-                      .margin({ bottom: 10 ,left:'5%'})
+                      .margin({ bottom: 10, left:'5%'})
                       .onClick(async () => {
                         if (this.userId > 0) {
                           try {
@@ -980,6 +939,16 @@ struct MainHome {
                         }
                       })
                   }
+
+                  // Add batch input steps button
+                  Button('批量输入步数')
+                    .secondaryButton('#1698CE')
+                    .opacity(0.8)
+                    .onClick(() => {
+                      this.stepInputTimes = ['08:00'];
+                      this.stepInputValues = ['0'];
+                      this.stepDialogController.open();
+                    })
                 }
                 .cardContainer()
 
@@ -1202,7 +1171,6 @@ struct MainHome {
         //运动界面
         TabContent() {
           Scroll() {
-            Column() {
               Column() {
                 Row() {
                   Text('步数')
@@ -1217,7 +1185,7 @@ struct MainHome {
                 }
                 .justifyContent(FlexAlign.Center)
                 .width('100%')
-                .padding({ top: 10, bottom: 10 })
+
 
                 Divider();
 
@@ -1288,8 +1256,7 @@ struct MainHome {
                     .height(150)
                     .width('100%')
                     .alignItems(HorizontalAlign.Start)
-
-                    // 使用单一的List组件展示柱子
+                    
                     Column() {
                       List({ space: 0 }) {
                         ForEach(this.stepChartData, (item: ChartDataItem) => {
@@ -1305,9 +1272,9 @@ struct MainHome {
                                     .borderRadius(this.chartMode === '月' ? 3 : 5)
                                 }
                               }
-                              .height(130) // 减小高度，避免延伸到日期区域
+                              .height(130)
                               .width('100%')
-                              .justifyContent(FlexAlign.End) // 确保柱子从底部向上增长
+                              .justifyContent(FlexAlign.End)
                             }
                             .alignItems(HorizontalAlign.Center)
                           }
@@ -1324,7 +1291,7 @@ struct MainHome {
                     }
                     .width('100%')
                     .height(150)
-                    .margin({ left: 60 }) // 为Y轴标签留出空间
+                    .margin({ left: 60 })
                   }
 
                   // 将日期标签单独放在下方，确保不被柱状图覆盖
@@ -1349,7 +1316,7 @@ struct MainHome {
                   .onScrollIndex((firstIndex: number) => {
                     // 同步两个List的滚动位置
                     // 注意：需要添加引用以实现此功能
-                    // this.chartListController.scrollTo({ index: firstIndex });
+                  //this.chartListController.scrollTo({ index: firstIndex });
                   })
 
                   // 分隔线，明确分隔图表和日期区域
@@ -1493,10 +1460,6 @@ struct MainHome {
               .borderRadius(8)
               .backgroundColor('#f5f5f5')
               .margin({ top: 10, bottom: 20 })
-            }
-            .backgroundColor('#f5f5f5')
-            .width('100%')
-            .alignItems(HorizontalAlign.Center)
           }
           .scrollBar(BarState.Auto)
           .onScrollFrameBegin((offset: number) => {
@@ -1580,7 +1543,7 @@ struct MainHome {
             .cardContainer()
             .margin({ bottom: 20 })
 
-            // 使用@Extend定义的菜单项组件
+
             Column() {
               // 健康数据分析菜单项
               Row() {
