@@ -27,6 +27,7 @@ struct MyInfo {
   @State emergencyPhone: string = '';
   @State medicalHistory: string = '';
   @State isEdit: boolean = false;
+  @State bmi:number = 0;
   private dbHelper: DatabaseHelper = new DatabaseHelper(getContext(this));
 
   aboutToAppear() {
@@ -41,9 +42,11 @@ struct MyInfo {
       if (params.isEdit !== undefined) {
         this.isEdit = params.isEdit;
       }
+      if (this.myheight.toString()  && this.weight.toString()) {
+
+      }
     }
 
-    // 初始化数据库并加载用户数据
     this.initData();
   }
 
@@ -390,116 +393,31 @@ struct MyInfo {
             .backgroundColor('#ffffff')
             .borderRadius(8)
             .margin({ bottom: 8 })
-          }
-          .width('90%')
-          .padding(15)
-          .borderRadius(8)
-          .backgroundColor('#f7f7f7')
-          .margin({ bottom: 20 })
 
-          // 紧急联系人
-          Column() {
-            Text('紧急联系人')
-              .fontSize(18)
-              .fontWeight(FontWeight.Bold)
-              .margin({ bottom: 10 })
-              .alignSelf(ItemAlign.Start)
-
-            // 联系人姓名
             Row() {
-              Text('联系人')
+              Text('BMI')
                 .fontSize(16)
                 .width('30%')
-              if (this.isEdit) {
-                TextInput({ text: this.emergencyContact, placeholder: '请输入联系人姓名' })
-                  .width('70%')
-                  .textAlign(TextAlign.End)
-                  .onChange((value: string) => {
-                    this.emergencyContact = value;
-                  })
-              } else {
-                Text(this.emergencyContact || '未设置')
+
+                Text(this.bmi.toFixed(1))
                   .fontSize(16)
                   .width('70%')
                   .textAlign(TextAlign.End)
-              }
+
             }
+
             .width('100%')
             .padding(10)
             .backgroundColor('#ffffff')
             .borderRadius(8)
             .margin({ bottom: 8 })
 
-            // 联系人电话
-            Row() {
-              Text('联系电话')
-                .fontSize(16)
-                .width('30%')
-              if (this.isEdit) {
-                TextInput({ text: this.emergencyPhone, placeholder: '请输入联系人电话' })
-                  .type(InputType.PhoneNumber)
-                  .width('70%')
-                  .textAlign(TextAlign.End)
-                  .onChange((value: string) => {
-                    this.emergencyPhone = value;
-                  })
-              } else {
-                Text(this.emergencyPhone || '未设置')
-                  .fontSize(16)
-                  .width('70%')
-                  .textAlign(TextAlign.End)
-              }
-            }
-            .width('100%')
-            .padding(10)
-            .backgroundColor('#ffffff')
-            .borderRadius(8)
-            .margin({ bottom: 8 })
           }
           .width('90%')
           .padding(15)
           .borderRadius(8)
           .backgroundColor('#f7f7f7')
           .margin({ bottom: 20 })
-
-          // 医疗信息
-          Column() {
-            Text('医疗信息')
-              .fontSize(18)
-              .fontWeight(FontWeight.Bold)
-              .margin({ bottom: 10 })
-              .alignSelf(ItemAlign.Start)
-
-            // 病史
-            Column() {
-              Text('病史')
-                .fontSize(16)
-                .margin({ bottom: 8 })
-                .alignSelf(ItemAlign.Start)
-
-              if (this.isEdit) {
-                TextArea({ text: this.medicalHistory, placeholder: '请输入病史信息' })
-                  .width('100%')
-                  .height(100)
-                  .onChange((value: string) => {
-                    this.medicalHistory = value;
-                  })
-              } else {
-                Text(this.medicalHistory || '未设置')
-                  .fontSize(16)
-                  .width('100%')
-                  .padding(10)
-                  .backgroundColor('#ffffff')
-                  .borderRadius(8)
-              }
-            }
-            .width('100%')
-          }
-          .width('90%')
-          .padding(15)
-          .borderRadius(8)
-          .backgroundColor('#f7f7f7')
-          .margin({ bottom: 30 })
 
           // 操作按钮
           if (this.isEdit) {

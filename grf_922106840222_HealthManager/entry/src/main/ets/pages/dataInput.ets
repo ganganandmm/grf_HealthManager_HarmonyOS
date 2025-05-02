@@ -1,52 +1,10 @@
-import router from '@ohos.router';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { JSON } from '@kit.ArkTS';
 import common from '@ohos.app.ability.common';
 import { DatabaseHelper } from '../common/DatabaseHelper';
-import { User } from '../common/UserModel';
 import { StepRecord, HeartRateRecord, SleepRecord, WaterRecord } from '../common/HealthDataModel';
-import Want from '@ohos.app.ability.Want'
 import promptAction from '@ohos.promptAction';
 
 const TAG: string = 'dataInput';
-
-
-interface HealthData {
-  userId: number;
-  username: string;
-  date: string;
-  steps: number;
-  heartRate: number;
-  sleepHours: number;
-  waterAmount: number;
-}
-
-interface WantParams {
-  healthData?: string;
-}
-
-interface AbilityStartParams {
-  bundleName: string;
-  abilityName: string;
-  moduleName?: string;
-  parameters?: WantParams;
-}
-
-interface RouterParams {
-  username: string;
-  userId: string;
-  steps: string;
-  heartRate: string;
-  sleepHours: string;
-  waterAmount: string;
-}
-
-// Define metadata params type
-interface MetadataParams {
-  healthData?: string;
-  // Add other specific parameters as needed
-}
-
 @Entry
 @Component
 struct dataInput{
@@ -65,9 +23,8 @@ struct dataInput{
   @State tempWaterAmount: number = 0; // Temporary variable for water input
   private dbHelper: DatabaseHelper = new DatabaseHelper(getContext(this));
   private context = getContext(this) as common.UIAbilityContext;
-  private refreshInterval: number = 0; // For periodic refresh
+
   async refreshData() {
-    // Check if there's a need to refresh (if db was updated)
     try {
       hilog.info(0x0000, TAG, 'Checking for data updates');
       if (this.userId > 0) {

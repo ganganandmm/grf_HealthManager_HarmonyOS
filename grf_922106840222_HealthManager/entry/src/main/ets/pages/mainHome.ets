@@ -1,4 +1,3 @@
-// MainHome.ets
 import router from '@ohos.router';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { JSON } from '@kit.ArkTS';
@@ -7,21 +6,68 @@ import { DatabaseHelper } from '../common/DatabaseHelper';
 import { StepRecord, HeartRateRecord, SleepRecord, WaterRecord } from '../common/HealthDataModel';
 import Want from '@ohos.app.ability.Want'
 import promptAction from '@ohos.promptAction';
-import { HomeTabComponent } from './HomeTabComponent';
-import { InputTabComponent } from './InputTabComponent';
-import { SportsTabComponent } from './SportsTabComponent';
-import { ProfileTabComponent } from './ProfileTabComponent';
-import { RefreshDataFunc, ShareHealthDataFunc, UpdateStepChartFunc } from './FunctionInterfaces';
-
+import {HeartRateInputDialog, WaterInputDialog} from './Dialog'
 export const TAG: string = 'mainHome';
 
+@Extend(Text) function titleText() {
+  .fontSize(20)
+  .fontWeight(FontWeight.Bold)
+  .margin({ top: 10, bottom: 20 })
+}
+
+@Extend(Text) function subtitleText() {
+  .fontSize(18)
+  .fontWeight(FontWeight.Bold)
+  .margin({ bottom: 10 })
+}
+
+@Extend(Text) function labelText() {
+  .fontSize(16)
+  .fontColor('#666')
+}
+
+@Extend(Text) function valueText() {
+  .fontSize(24)
+  .fontWeight(FontWeight.Bold)
+}
+
+@Extend(Column) function cardContainer() {
+  .width('90%')
+  .padding(15)
+  .borderRadius(8)
+  .backgroundColor('#f7f7f7')
+  .margin({ bottom: 10 })
+}
+
+@Extend(Button) function primaryButton() {
+  .width('100%')
+  .height(40)
+  .backgroundColor('#27AE60')
+  .margin({ bottom: 10 })
+}
+
+@Extend(Button) function secondaryButton(bgColor: string = '#3498DB') {
+  .width('100%')
+  .height(40)
+  .backgroundColor(bgColor)
+  .margin({ bottom: 10 })
+}
+
+@Extend(Row) function menuItem() {
+  .width('100%')
+  .padding(15)
+  .backgroundColor('#ffffff')
+  .borderRadius(8)
+  .margin({ bottom: 10 })
+}
+
+// 定义接口
 interface RouteParams {
   username?: string;
   userId?: number;
-  newLogin?: boolean; // 检查是否是新用户登录
+  newLogin?: boolean;
 }
 
-// 健康数据的接口
 interface HealthData {
   userId: number;
   username: string;
@@ -30,18 +76,6 @@ interface HealthData {
   heartRate: number;
   sleepHours: number;
   waterAmount: number;
-}
-
-// Define explicit type for Want parameters without indexed signature
-interface WantParams {
-  healthData?: string;
-}
-
-interface AbilityStartParams {
-  bundleName: string;
-  abilityName: string;
-  moduleName?: string;
-  parameters?: WantParams;
 }
 
 interface RouterParams {
@@ -58,12 +92,112 @@ interface MetadataParams {
   healthData?: string;
 }
 
-// 定义柱状图数据结构
 interface ChartDataItem {
   label: string;
   value: number;
 }
+@Component
+struct HealthDataCard {
+  @Prop title: string;
+  @Prop value: string;
+  @Prop unit: string = '';
+  @Prop color: string = '#1698CE';
 
+  build() {
+    Column() {
+      Text(this.title)
+        .labelText()
+      Text(this.value + (this.unit ? ' ' + this.unit : ''))
+        .valueText()
+        .fontColor(this.color)
+    }
+    .width('45%')
+    .padding(10)
+    .borderRadius(8)
+    .backgroundColor('#f7f7f7')
+  }
+}
+
+// 心率记录项组件
+@Component
+struct HeartRateRecordItem {
+  @Prop record!: HeartRateRecord;
+
+  build() {
+    Row() {
+      Text(this.record.time)
+        .fontSize(16)
+        .width('40%')
+      Text(`${this.record.rate} 次/分`)
+        .fontSize(16)
+        .fontColor('#3498DB')
+        .width('60%')
+    }
+    .width('100%')
+    .padding(10)
+    .justifyContent(FlexAlign.SpaceBetween)
+  }
+}
+@Component
+struct WaterRecordItem {
+  @Prop record!: WaterRecord;
+
+  build() {
+    Row() {
+      Text(this.record.time)
+        .fontSize(16)
+        .width('40%')
+      Text(`${this.record.amount} ml`)
+        .fontSize(16)
+        .fontColor('#3498DB')
+        .width('60%')
+    }
+    .width('100%')
+    .padding(10)
+    .justifyContent(FlexAlign.SpaceBetween)
+  }
+}
+@Component
+struct DataInputRow {
+  @Prop title: string = '';
+  @Prop placeholder: string = '';
+  @Prop unit: string = '';
+  @Prop buttonText: string = '';
+  @Prop buttonColor: string = '#3498DB';
+  @State inputValue: string = '';
+  onInputChange: (value: string) => void = () => {};  // 提供默认空函数
+  onButtonClick: () => void = () => {};  // 提供默认空函数
+
+  build() {
+    Row() {
+      TextInput({ text: this.inputValue, placeholder: this.placeholder })
+        .type(InputType.Number)
+        .width('45%')
+        .height(50)
+        .onChange((value: string) => {
+          this.inputValue = value;
+          this.onInputChange(value);
+        })
+
+      Text(this.unit)
+        .fontSize(16)
+        .fontColor('#666')
+        .width('15%')
+        .margin({ left: 10, right: 10 })
+
+      Button(this.buttonText)
+        .width('40%')
+        .height(50)
+        .backgroundColor(this.buttonColor)
+        .margin({ bottom: 10 })
+        .onClick(() => {
+          this.onButtonClick();
+        })
+    }
+    .width('100%')
+    .margin({ bottom: 10 })
+  }
+}
 @Entry
 @Component
 struct MainHome {
@@ -84,13 +218,13 @@ struct MainHome {
   private context = getContext(this) as common.UIAbilityContext;
   private refreshInterval: number = 0; // For periodic refresh
   @State heartRateRecords: HeartRateRecord[] = [];//心率记录
-
-  // 需要添加这些新的状态变量到MainHome类中，用来进行多个数据的录入
   @State heartRateInputTimes: string[] = ['08:00']; // 默认添加一个时间
   @State heartRateInputValues: string[] = ['0']; // 默认添加一个心率值
   @State waterInputTimes: string[] = ['08:00']; // 默认添加一个时间
   @State waterInputValues: string[] = ['0']; // 默认添加一个饮水量值
-
+  @State myWeight: number =  0;//体重
+  @State myHeight:number = 0;// 身高
+  @State bmi:number = 0;
   // 新增状态变量用于步数图表
   @State stepChartData: ChartDataItem[] = [];
   @State chartMode: string = '日'; // '日', '周', '月'
@@ -99,18 +233,35 @@ struct MainHome {
   @State avgDailySteps: number = 0;
   @State maxDisplayValue: number = 15000; // 图表纵坐标最大值
 
-  // 函数接口实现
-  refreshDataFunc: RefreshDataFunc = {
-    refreshData: this.refreshData.bind(this)
-  };
+  @State canvasContext: CanvasRenderingContext2D | null = null;
+  @State selectedDate: Date = new Date(); // 当前选中的日期
+  @State isCalendarVisible: boolean = false; // 控制日历显示与隐藏
 
-  shareHealthDataFunc: ShareHealthDataFunc = {
-    shareHealthData: this.shareHealthData.bind(this)
-  };
+  heartRateDialogController: CustomDialogController = new CustomDialogController({
+    builder: HeartRateInputDialog({
+      heartRateInputTimes: this.heartRateInputTimes,
+      heartRateInputValues: this.heartRateInputValues,
+      addHeartRateInputRow: this.addHeartRateInputRow.bind(this),
+      removeHeartRateInputRow: this.removeHeartRateInputRow.bind(this),
+      saveMultiHeartRates: this.saveMultiHeartRates.bind(this)
+    }),
+    autoCancel: false,
+    alignment: DialogAlignment.Center,
+    customStyle: true
+  });
 
-  updateStepChartFunc: UpdateStepChartFunc = {
-    updateStepChartData: this.updateStepChartData.bind(this)
-  };
+  waterDialogController: CustomDialogController = new CustomDialogController({
+    builder: WaterInputDialog({
+      waterInputTimes: this.waterInputTimes,
+      waterInputValues: this.waterInputValues,
+      addWaterInputRow: this.addWaterInputRow.bind(this),
+      removeWaterInputRow: this.removeWaterInputRow.bind(this),
+      saveMultiWaterRecords: this.saveMultiWaterRecords.bind(this)
+    }),
+    autoCancel: false,
+    alignment: DialogAlignment.Center,
+    customStyle: true
+  });
 
   aboutToAppear() {
     const params = router.getParams() as RouteParams;
@@ -126,7 +277,6 @@ struct MainHome {
         hilog.info(0x0000, TAG, 'New login detected, refreshing data');
       }
     }
-
     this.initData();
     this.checkReceivedData();
     this.refreshInterval = setInterval(() => {
@@ -139,6 +289,8 @@ struct MainHome {
       clearInterval(this.refreshInterval);
     }
     this.dbHelper.closeDatabase();
+    this.heartRateDialogController.close();
+    this.waterDialogController.close();
   }
 
   async initData() {
@@ -151,8 +303,18 @@ struct MainHome {
           this.userId = users[0].id || -1;
         }
       }
-
       if (this.userId > 0) {
+        // 获取用户个人信息（身高和体重）
+        const userInfo = await this.dbHelper.getUserById(this.userId);
+        if (userInfo) {
+          this.myHeight = userInfo.height || 0;
+          this.myWeight = userInfo.weight || 0;
+          // 计算BMI
+          if (this.myHeight > 0 && this.myWeight > 0) {
+            // BMI = 体重(kg) / (身高(m)^2)
+            this.bmi = this.myWeight / Math.pow(this.myHeight / 100, 2);
+          }
+        }
         await this.loadHealthData();
         await this.updateStepChartData(); // 加载步数图表数据
       }
@@ -168,6 +330,16 @@ struct MainHome {
     try {
       hilog.info(0x0000, TAG, 'Checking for data updates');
       if (this.userId > 0) {
+        // 刷新用户信息
+        const userInfo = await this.dbHelper.getUserById(this.userId);
+        if (userInfo) {
+          this.myHeight = userInfo.height || 0;
+          this.myWeight = userInfo.weight || 0;
+          // 更新BMI
+          if (this.myHeight > 0 && this.myWeight > 0) {
+            this.bmi = this.myWeight / Math.pow(this.myHeight / 100, 2);
+          }
+        }
         await this.loadHealthData();
         await this.updateStepChartData(); // 刷新步数图表数据
       }
@@ -178,6 +350,7 @@ struct MainHome {
   }
 
   async loadHealthData() {
+    // 原有方法保持不变
     try {
       const stepRecords = await this.dbHelper.getStepRecords(this.userId, this.currentDate);
       if (stepRecords.length > 0) {
@@ -194,7 +367,6 @@ struct MainHome {
       } else {
         this.heartRate = 0;
       }
-
       const sleepRecords = await this.dbHelper.getSleepRecords(this.userId, this.currentDate);
       if (sleepRecords.length > 0) {
         this.sleepHours = sleepRecords[0].duration / 60;
@@ -208,13 +380,14 @@ struct MainHome {
 
       this.lastUpdateTime = Date.now();
       hilog.info(0x0000, TAG, 'Health data loaded successfully');
+
+
     } catch (error) {
       const errorMessage: string = error instanceof Error ? error.message : String(error);
       hilog.error(0x0000, TAG, `Failed to load health data: ${errorMessage}`);
     }
   }
 
-  // 新增方法：更新步数图表数据
   async updateStepChartData() {
     try {
       let data: ChartDataItem[] = [];
@@ -226,15 +399,12 @@ struct MainHome {
 
       switch (this.chartMode) {
         case '日':
-          // Create 6 time slots for the day (every 4 hours)
           const timeSlots = ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00'];
 
-          // Get all step records for the day
           const dayStepRecords = await this.dbHelper.getStepRecords(this.userId, this.currentDate);
           let dayTotalSteps = dayStepRecords.length > 0 ? dayStepRecords[0].steps : 0;
           total = dayTotalSteps;
 
-          // Distribute steps across time slots based on typical activity patterns
           const hourlyDistribution = [0.05, 0.05, 0.15, 0.30, 0.35, 0.10]; // Distribution percentages
 
           for (let i = 0; i < timeSlots.length; i++) {
@@ -289,7 +459,6 @@ struct MainHome {
           break;
 
         case '月':
-          // Get current month data
           const year = currentDateObj.getFullYear();
           const month = currentDateObj.getMonth();
           const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -297,10 +466,8 @@ struct MainHome {
           let monthTotal = 0;
           let activeDays = 0;
 
-          // Only process first 15 days to avoid too many database calls
-          const daysToShow = Math.min(daysInMonth, 15);
-
-          for (let i = 1; i <= daysToShow; i++) {
+          // 使用完整的月份天数，支持通过滚动查看全部数据
+          for (let i = 1; i <= daysInMonth; i++) {
             // Format date string YYYY-MM-DD
             const monthStr = (month + 1).toString().padStart(2, '0');
             const dayStr = i.toString().padStart(2, '0');
@@ -320,7 +487,7 @@ struct MainHome {
           }
 
           total = monthTotal;
-          this.maxDisplayValue = Math.max(15000, Math.ceil(monthTotal / daysToShow) * 1.5);
+          this.maxDisplayValue = Math.max(15000, Math.ceil(monthTotal / daysInMonth) * 1.5);
           dateDisplay = `${year}年${month + 1}月`;
           this.avgDailySteps = activeDays > 0 ? Math.round(monthTotal / activeDays) : 0;
           break;
@@ -333,6 +500,37 @@ struct MainHome {
       const errorMessage: string = error instanceof Error ? error.message : String(error);
       hilog.error(0x0000, TAG, `Failed to update step chart data: ${errorMessage}`);
     }
+  }
+
+  async openCalendar() {
+    try {
+      // 构造一个Want，用于启动系统日历应用
+      const want: Want = {
+        deviceId: "",
+        bundleName: "com.huawei.calendar",
+        abilityName: "com.huawei.calendar.LauncherAbility"
+      };
+
+      let context = getContext(this) as common.UIAbilityContext;
+      await context.startAbility(want);
+      console.info("grf_成功打开系统日历");
+    } catch (error) {
+      console.info(`grf_打开系统日历失败：${error}`);
+    }
+  }
+
+  async selectDate() {
+    try {
+    } catch (err) {
+      console.error(`Select date failed with error: ${err}`);
+    }
+  }
+
+  // 计算柱状图高度
+  calculateBarHeight(value: number): number {
+    const maxHeight = 120; // 减小最大高度，确保不会超出容器
+    const calculatedHeight = (value / this.maxDisplayValue) * maxHeight;
+    return Math.max(calculatedHeight, value > 0 ? 5 : 0); // 确保即使数值很小，柱子也至少有5px高度
   }
 
   // 检查是否有通过Want接收到的数据 - 更新为Stage模式API
@@ -361,7 +559,6 @@ struct MainHome {
     try {
       // Before sharing, refresh data to ensure it's up to date
       await this.refreshData();
-
       // 创建健康数据对象
       const healthData: HealthData = {
         userId: this.userId,
@@ -370,7 +567,7 @@ struct MainHome {
         steps: this.steps,
         heartRate: this.heartRate,
         sleepHours: this.sleepHours,
-        waterAmount: this.waterAmount
+        waterAmount: this.waterAmount,
       };
 
       // 将数据转换为JSON字符串
@@ -394,6 +591,151 @@ struct MainHome {
       const errorMessage: string = error instanceof Error ? error.message : String(error);
       hilog.error(0x0000, TAG, `Failed to share health data: ${errorMessage}`);
     }
+  }
+
+  ClickJumpToShowData() {
+    this.refreshData().then(() => {
+      const routerParams: RouterParams = {
+        username: this.username,
+        userId: this.userId.toString(),
+        steps: this.steps.toString(),
+        heartRate: this.heartRate.toString(),
+        sleepHours: this.sleepHours.toString(),
+        waterAmount: this.waterAmount.toString(),
+        date: this.currentDate // 添加日期参数
+      };
+
+      router.pushUrl({
+        url: 'pages/dataShow',
+        params: routerParams
+      }, router.RouterMode.Standard, (err) => {
+        if (err) {
+          console.error(`error_jump_failed code: ${err.code}, message: ${err.message}`);
+          return;
+        }
+        console.info('Navigate to ShowData success');
+      });
+    });
+  }
+
+  // Add manual refresh method that can be triggered by a button
+  manualRefresh() {
+    hilog.info(0x0000, TAG, 'Manual refresh triggered');
+    this.refreshData();
+  }
+
+  // 添加心率输入行
+  addHeartRateInputRow() {
+    this.heartRateInputTimes.push('');
+    this.heartRateInputValues.push('');
+  }
+
+  // 删除心率输入行
+  removeHeartRateInputRow(index: number) {
+    if (this.heartRateInputTimes.length > 1) {
+      this.heartRateInputTimes.splice(index, 1);
+      this.heartRateInputValues.splice(index, 1);
+    }
+  }
+
+  // 添加饮水输入行
+  addWaterInputRow() {
+    this.waterInputTimes.push('');
+    this.waterInputValues.push('');
+  }
+
+  // 删除饮水输入行
+  removeWaterInputRow(index: number) {
+    if (this.waterInputTimes.length > 1) {
+      this.waterInputTimes.splice(index, 1);
+      this.waterInputValues.splice(index, 1);
+    }
+  }
+
+  // 批量保存心率数据
+  async saveMultiHeartRates() {
+    if (this.userId <= 0) {
+      promptAction.showToast({ message: '用户ID无效' });
+      return;
+    }
+
+    try {
+      let successCount = 0;
+      // 遍历所有输入行
+      for (let i = 0; i < this.heartRateInputTimes.length; i++) {
+        const time = this.heartRateInputTimes[i].trim();
+        const rate = parseInt(this.heartRateInputValues[i]) || 0;
+
+        // 验证时间格式和心率值
+        if (!time || !this.isValidTimeFormat(time) || rate <= 0) {
+          continue; // 跳过无效输入
+        }
+
+        // 创建并保存心率记录
+        const record = new HeartRateRecord(this.userId, this.currentDate, time, rate);
+        if (await this.dbHelper.insertHeartRateRecord(record)) {
+          successCount++;
+        }
+      }
+
+      // 显示结果消息
+      if (successCount > 0) {
+        promptAction.showToast({ message: `成功保存 ${successCount} 条心率记录` });
+        this.refreshData(); // 刷新数据
+      } else {
+        promptAction.showToast({ message: '没有有效的心率记录被保存' });
+      }
+    } catch (error) {
+      const errorMessage: string = error instanceof Error ? error.message : String(error);
+      hilog.error(0x0000, TAG, `Failed to save heart rate records: ${errorMessage}`);
+      promptAction.showToast({ message: '保存心率记录失败' });
+    }
+  }
+
+  // 批量保存饮水数据
+  async saveMultiWaterRecords() {
+    if (this.userId <= 0) {
+      promptAction.showToast({ message: '用户ID无效' });
+      return;
+    }
+
+    try {
+      let successCount = 0;
+      // 遍历所有输入行
+      for (let i = 0; i < this.waterInputTimes.length; i++) {
+        const time = this.waterInputTimes[i].trim();
+        const amount = parseInt(this.waterInputValues[i]) || 0;
+
+        // 验证时间格式和饮水量
+        if (!time || !this.isValidTimeFormat(time) || amount <= 0) {
+          continue; // 跳过无效输入
+        }
+
+        // 创建并保存饮水记录
+        const record = new WaterRecord(this.userId, this.currentDate, time, amount);
+        if (await this.dbHelper.insertWaterRecord(record)) {
+          successCount++;
+        }
+      }
+
+      // 显示结果消息
+      if (successCount > 0) {
+        promptAction.showToast({ message: `成功保存 ${successCount} 条饮水记录` });
+        this.refreshData(); // 刷新数据
+      } else {
+        promptAction.showToast({ message: '没有有效的饮水记录被保存' });
+      }
+    } catch (error) {
+      const errorMessage: string = error instanceof Error ? error.message : String(error);
+      hilog.error(0x0000, TAG, `Failed to save water records: ${errorMessage}`);
+      promptAction.showToast({ message: '保存饮水记录失败' });
+    }
+  }
+
+  // 验证时间格式是否为 HH:MM
+  isValidTimeFormat(time: string): boolean {
+    const regex = /^([01]?[0-9]|2[0-3]):([0-5][0-9])$/;
+    return regex.test(time);
   }
 
   build() {
@@ -427,74 +769,935 @@ struct MainHome {
       // 主要内容区域
       Tabs({ barPosition: BarPosition.End, index: this.currentIndex }) {
         TabContent() {
-          // 首页组件
-          HomeTabComponent({
-            username: $username,
-            userId: $userId,
-            steps: $steps,
-            heartRate: $heartRate,
-            sleepHours: $sleepHours,
-            waterAmount: $waterAmount,
-            waterRecords: $waterRecords,
-            currentDate: $currentDate,
-            receivedHealthData: $receivedHealthData,
-            heartRateRecords: $heartRateRecords,
-            lastUpdateTime: $lastUpdateTime,
-            refreshDataFunc: this.refreshDataFunc,
-            shareHealthDataFunc: this.shareHealthDataFunc
+          Scroll() {
+            Column() {
+              Text('今日健康数据概览')
+                .titleText()
+
+              // 数据卡片 - 使用自定义组件
+              Row() {
+                HealthDataCard({
+                  title: '步数',
+                  value: this.steps.toString(),
+                  color: '#1698CE'
+                })
+
+                HealthDataCard({
+                  title: '最近心率',
+                  value: this.heartRate.toString(),
+                  unit: 'bpm',
+                  color: '#E74C3C'
+                })
+              }
+              .width('90%')
+              .justifyContent(FlexAlign.SpaceBetween)
+              .margin({ top: 10, bottom: 20 })
+
+              Row() {
+                HealthDataCard({
+                  title: '睡眠时长',
+                  value: this.sleepHours.toFixed(1),
+                  unit: '小时',
+                  color: '#9B59B6'
+                })
+
+                HealthDataCard({
+                  title: '饮水量',
+                  value: this.waterAmount.toString(),
+                  unit: 'ml',
+                  color: '#3498DB'
+                })
+              }
+              .width('90%')
+              .justifyContent(FlexAlign.SpaceBetween)
+              .margin({ top: 10, bottom: 20 })
+
+              // 分享和查看详情按钮
+              Row() {
+                Button('分享健康数据')
+                  .width('45%')
+                  .height(40)
+                  .backgroundColor('#27AE60')
+                  .margin({ right: 10 })
+                  .onClick(() => {
+                    this.shareHealthData();
+                  })
+
+                Button('查看详细数据')
+                  .width('45%')
+                  .height(40)
+                  .backgroundColor('#3498DB')
+                  .onClick(() => {
+                    this.ClickJumpToShowData();
+                  })
+              }
+              .width('90%')
+              .justifyContent(FlexAlign.SpaceBetween)
+              .margin({ top: 20, bottom: 20 })
+
+              // Pull to refresh text
+              Text('下拉刷新数据')
+                .fontSize(14)
+                .fontColor('#888')
+                .margin({ top: 5, bottom: 15 })
+
+              // 显示接收到的健康数据
+              if (this.receivedHealthData) {
+                Column() {
+                  Text('接收到的健康数据')
+                    .subtitleText()
+                    .alignSelf(ItemAlign.Start)
+
+                  Text(this.receivedHealthData)
+                    .fontSize(14)
+                    .fontColor('#666')
+                    .width('100%')
+                }
+                .cardContainer()
+                .margin({ top: 10, bottom: 20 })
+              }
+
+              // 最近饮水记录
+              Column() {
+                Text('今日饮水记录')
+                  .subtitleText()
+                  .alignSelf(ItemAlign.Start)
+
+                List() {
+                  ForEach(this.waterRecords, (item: WaterRecord) => {
+                    ListItem() {
+                      WaterRecordItem({ record: item })
+                    }
+                  })
+                }
+                .width('100%')
+                .height(150)
+                .divider({ strokeWidth: 1, color: '#eeeeee' })
+              }
+              .cardContainer()
+              .margin({ top: 10, bottom: 20 })
+
+              Divider()
+                .width('90%')
+                .height(1)
+                .backgroundColor('#ddd')
+
+              //心率记录
+              Column() {
+                Text('今日心率记录')
+                  .subtitleText()
+                  .alignSelf(ItemAlign.Start)
+
+                List() {
+                  ForEach(this.heartRateRecords, (item: HeartRateRecord) => {
+                    ListItem() {
+                      HeartRateRecordItem({ record: item })
+                    }
+                  })
+                }
+                .width('100%')
+                .height(150)
+                .divider({ strokeWidth: 1, color: '#eeeeee' })
+              }
+              .cardContainer()
+              .margin({ top: 10, bottom: 20 })
+            }
+            .width('100%')
+            .alignItems(HorizontalAlign.Center)
+          }
+          .scrollBar(BarState.Auto)
+          .onScrollFrameBegin((offset: number) => {
+            // Implement pull-to-refresh functionality
+            if (offset <= -100) { // If pulled down more than 100px
+              this.refreshData();
+              return { offsetRemain: 0 };
+            }
+            return { offsetRemain: offset };
           })
         }
-        .tabBar({ text: '首页' })
+        .tabBar({ text: '首页'})
 
         // 数据输入页面
         TabContent() {
-          // 数据输入组件
-          InputTabComponent({
-            username: $username,
-            userId: $userId,
-            steps: $steps,
-            heartRate: $heartRate,
-            sleepHours: $sleepHours,
-            waterAmount: $waterAmount,
-            currentDate: $currentDate,
-            tempWaterAmount: $tempWaterAmount,
-            heartRateInputTimes: $heartRateInputTimes,
-            heartRateInputValues: $heartRateInputValues,
-            waterInputTimes: $waterInputTimes,
-            waterInputValues: $waterInputValues,
-            dbHelper: this.dbHelper,
-            refreshDataFunc: this.refreshDataFunc
-          })
+          Column() {
+            Text('健康数据录入')
+              .titleText()
+            Scroll() {
+              Column() {
+                // 步数输入
+                Column() {
+                  Text('步数录入')
+                    .subtitleText()
+                    .alignSelf(ItemAlign.Start)
+
+                  Row(){
+                    TextInput({ text: this.steps.toString() })
+                      .type(InputType.Number)
+                      .width('60%')
+                      .height(50)
+                      .margin({ bottom: 10 })
+                      .onChange((value: string) => {
+                        this.steps = parseInt(value) || 0;
+                      })
+
+                    Button('保存步数')
+                      .width('40%')
+                      .height(50)
+                      .backgroundColor('#1698CE')
+                      .margin({ bottom: 10 ,left:'5%'})
+                      .onClick(async () => {
+                        if (this.userId > 0) {
+                          try {
+                            // 查询是否已有当日记录
+                            const stepRecords = await this.dbHelper.getStepRecords(this.userId, this.currentDate);
+                            if (stepRecords.length > 0) {
+                              // 更新现有记录
+                              const record = stepRecords[0];
+                              record.steps = this.steps;
+                              if (await this.dbHelper.updateStepRecord(record)) {
+                                promptAction.showToast({ message: '步数更新成功' });
+                              } else {
+                                promptAction.showToast({ message: '步数更新失败' });
+                              }
+                            } else {
+                              // 创建新记录
+                              const record = new StepRecord(this.userId, this.currentDate, this.steps);
+                              if (await this.dbHelper.insertStepRecord(record)) {
+                                promptAction.showToast({ message: '步数保存成功' });
+                              } else {
+                                promptAction.showToast({ message: '步数保存失败' });
+                              }
+                            }
+                            // 刷新数据
+                            this.refreshData();
+                          } catch (error) {
+                            const errorMessage: string = error instanceof Error ? error.message : String(error);
+                            hilog.error(0x0000, TAG, `Failed to save step data: ${errorMessage}`);
+                            promptAction.showToast({ message: '操作失败' });
+                          }
+                        } else {
+                          promptAction.showToast({ message: '用户ID无效' });
+                        }
+                      })
+                  }
+                }
+                .cardContainer()
+
+                // 心率输入
+                Column() {
+                  Text('心率录入')
+                    .subtitleText()
+                    .alignSelf(ItemAlign.Start)
+
+                  // 使用自定义的DataInputRow组件
+                  DataInputRow({
+                    title: '心率录入',
+                    placeholder: '输入心率',
+                    unit: 'bpm',
+                    buttonText: '保存心率',
+                    buttonColor: '#E74C3C',
+                    onInputChange: (value: string) => {
+                      this.heartRate = parseInt(value) || 0;
+                    },
+                    onButtonClick: async () => {
+                      if (this.userId > 0) {
+                        try {
+                          // 获取当前时间
+                          const now = new Date();
+                          const timeStr = now.toTimeString().split(' ')[0].substring(0, 5); // Format: HH:MM
+
+                          // 创建新的心率记录（心率可以有多条记录）
+                          const record = new HeartRateRecord(this.userId, this.currentDate, timeStr, this.heartRate);
+                          if (await this.dbHelper.insertHeartRateRecord(record)) {
+                            promptAction.showToast({ message: '心率保存成功' });
+                          } else {
+                            promptAction.showToast({ message: '心率保存失败' });
+                          }
+                          // 刷新数据
+                          this.refreshData();
+                        } catch (error) {
+                          const errorMessage: string = error instanceof Error ? error.message : String(error);
+                          hilog.error(0x0000, TAG, `Failed to save heart rate data: ${errorMessage}`);
+                          promptAction.showToast({ message: '操作失败' });
+                        }
+                      } else {
+                        promptAction.showToast({ message: '用户ID无效' });
+                      }
+                    }
+                  })
+
+                  // 添加批量输入心率按钮
+                  Button('批量输入心率')
+                    .secondaryButton('#E74C3C')
+                    .opacity(0.8)
+                    .onClick(() => {
+                      this.heartRateInputTimes = ['08:00'];
+                      this.heartRateInputValues = ['0'];
+                      this.heartRateDialogController.open();
+                    })
+                }
+                .cardContainer()
+
+                // 睡眠时长输入
+                Column() {
+                  Text('睡眠记录')
+                    .subtitleText()
+                    .alignSelf(ItemAlign.Start)
+
+                  // 使用自定义的DataInputRow组件
+                  DataInputRow({
+                    title: '睡眠记录',
+                    placeholder: '请输入睡眠时长',
+                    unit: '小时',
+                    buttonText: '保存时长',
+                    buttonColor: '#9B59B6',
+                    onInputChange: (value: string) => {
+                      let sleepValue = parseFloat(value) || 0;
+                      if (sleepValue < 0) sleepValue = 0;
+                      if (sleepValue > 24) sleepValue = 24;
+                      this.sleepHours = sleepValue;
+                    },
+                    onButtonClick: async () => {
+                      if (this.userId > 0) {
+                        if (this.sleepHours < 0 || this.sleepHours > 24) {
+                          promptAction.showToast({ message: '睡眠时长必须在0-24小时之间' });
+                          return;
+                        }
+
+                        try {
+                          // 查询是否已有当日记录
+                          const sleepRecords = await this.dbHelper.getSleepRecords(this.userId, this.currentDate);
+                          const sleepMinutes = Math.round(this.sleepHours * 60); // 转换为分钟
+
+                          if (sleepRecords.length > 0) {
+                            // 更新现有记录
+                            const record = sleepRecords[0];
+                            record.duration = sleepMinutes;
+                            if (await this.dbHelper.updateSleepRecord(record)) {
+                              promptAction.showToast({ message: '睡眠时长更新成功' });
+                            } else {
+                              promptAction.showToast({ message: '睡眠时长更新失败' });
+                            }
+                          } else {
+                            // 创建新记录
+                            const record = new SleepRecord(this.userId, this.currentDate, sleepMinutes);
+                            if (await this.dbHelper.insertSleepRecord(record)) {
+                              promptAction.showToast({ message: '睡眠时长保存成功' });
+                            } else {
+                              promptAction.showToast({ message: '睡眠时长保存失败' });
+                            }
+                          }
+                          // 刷新数据
+                          this.refreshData();
+                        } catch (error) {
+                          const errorMessage: string = error instanceof Error ? error.message : String(error);
+                          hilog.error(0x0000, TAG, `Failed to save sleep data: ${errorMessage}`);
+                          promptAction.showToast({ message: '操作失败' });
+                        }
+                      } else {
+                        promptAction.showToast({ message: '用户ID无效' });
+                      }
+                    }
+                  })
+
+                  Text('睡眠时长范围: 0-24小时')
+                    .fontSize(14)
+                    .fontColor('#888')
+                    .margin({ bottom: 10 })
+                }
+                .cardContainer()
+
+                // 饮水量输入
+                Column() {
+                  Text('饮水记录')
+                    .subtitleText()
+                    .alignSelf(ItemAlign.Start)
+
+                  // 使用自定义的DataInputRow组件
+                  DataInputRow({
+                    title: '饮水记录',
+                    placeholder: '请输入饮水量(ml)',
+                    unit: 'ml',
+                    buttonText: '添加记录',
+                    buttonColor: '#3498DB',
+                    onInputChange: (value: string) => {
+                      this.tempWaterAmount = parseInt(value) || 0;
+                    },
+                    onButtonClick: async () => {
+                      if (this.userId > 0 && this.tempWaterAmount > 0) {
+                        try {
+                          // 获取当前时间
+                          const now = new Date();
+                          const timeStr = now.toTimeString().split(' ')[0].substring(0, 5); // Format: HH:MM
+
+                          // 创建新的饮水记录
+                          const record = new WaterRecord(this.userId, this.currentDate, timeStr, this.tempWaterAmount);
+                          if (await this.dbHelper.insertWaterRecord(record)) {
+                            promptAction.showToast({ message: '饮水记录添加成功' });
+                            // 重置临时水量
+                            this.tempWaterAmount = 0;
+                          } else {
+                            promptAction.showToast({ message: '饮水记录添加失败' });
+                          }
+                          // 刷新数据
+                          this.refreshData();
+                        } catch (error) {
+                          const errorMessage: string = error instanceof Error ? error.message : String(error);
+                          hilog.error(0x0000, TAG, `Failed to save water data: ${errorMessage}`);
+                          promptAction.showToast({ message: '操作失败' });
+                        }
+                      } else if (this.tempWaterAmount <= 0) {
+                        promptAction.showToast({ message: '请输入有效的饮水量' });
+                      } else {
+                        promptAction.showToast({ message: '用户ID无效' });
+                      }
+                    }
+                  })
+
+                  // 添加批量输入饮水量按钮
+                  Button('批量输入饮水量')
+                    .secondaryButton('#3498DB')
+                    .opacity(0.8)
+                    .onClick(() => {
+                      this.waterInputTimes = ['08:00'];
+                      this.waterInputValues = ['0'];
+                      this.waterDialogController.open();
+                    })
+
+                  // 显示今日总饮水量
+                  Text(`今日总饮水量: ${this.waterAmount} ml`)
+                    .fontSize(16)
+                    .fontColor('#3498DB')
+                    .margin({ top: 10 })
+                }
+                .cardContainer()
+                .margin({ bottom: 20 })
+
+                // 数据刷新按钮
+                Column() {
+                  Button('刷新所有数据')
+                    .primaryButton()
+                    .backgroundColor('#2ECC71')
+                    .onClick(() => {
+                      this.refreshData();
+                      promptAction.showToast({ message: '数据已刷新' });
+                    })
+                }
+                .width('100%')
+                .alignItems(HorizontalAlign.Center)
+                .margin({ bottom: 20 })
+              }
+              .width('100%')
+              .alignItems(HorizontalAlign.Center)
+            }
+            .scrollBar(BarState.Auto)
+            .width('100%')
+            .layoutWeight(1)
+          }
+          .width('100%')
+          .alignItems(HorizontalAlign.Center)
         }
         .tabBar({ text: '数据输入' })
 
-        // 运动界面
+        //运动界面
         TabContent() {
-          // 运动数据组件
-          SportsTabComponent({
-            username: $username,
-            userId: $userId,
-            currentDate: $currentDate,
-            stepChartData: $stepChartData,
-            chartMode: $chartMode,
-            dateRangeText: $dateRangeText,
-            totalSteps: $totalSteps,
-            avgDailySteps: $avgDailySteps,
-            maxDisplayValue: $maxDisplayValue,
-            refreshDataFunc: this.refreshDataFunc,
-            updateStepChartFunc: this.updateStepChartFunc
+          Scroll() {
+            Column() {
+              Column() {
+                Row() {
+                  Text('步数')
+                    .titleText()
+                    .layoutWeight(1)
+                    .textAlign(TextAlign.Center)
+                }
+                Row() {
+                  Text(this.dateRangeText)
+                    .labelText()
+                    .textAlign(TextAlign.Center)
+                }
+                .justifyContent(FlexAlign.Center)
+                .width('100%')
+                .padding({ top: 10, bottom: 10 })
+
+                Divider();
+
+                // 图表模式切换
+                Row() {
+                  ForEach(['日', '周', '月'], (mode: string) => {
+                    Text(mode)
+                      .fontSize(16)
+                      .fontWeight(this.chartMode === mode ? FontWeight.Bold : FontWeight.Normal)
+                      .fontColor(this.chartMode === mode ? '#000' : '#666')
+                      .backgroundColor(this.chartMode === mode ? '#fff' : '#f5f5f5')
+                      .padding({ left: 20, right: 20, top: 8, bottom: 8 })
+                      .borderRadius(20)
+                      .onClick(() => {
+                        this.chartMode = mode;
+                        this.updateStepChartData();
+                      })
+                  })
+                }
+                .width('100%')
+                .margin({top : '10%'})
+                .justifyContent(FlexAlign.SpaceEvenly)
+                .margin({ bottom: 20 })
+
+                // 步数显示
+                Column() {
+                  Row() {
+                    Text(this.totalSteps.toString())
+                      .valueText()
+                    Text('步')
+                      .fontSize(20)
+                      .margin({ left: 5 })
+                  }
+
+                  Text(this.dateRangeText)
+                    .fontSize(14)
+                    .fontColor('#666')
+                    .margin({ top: 5 })
+                }
+                .width('100%')
+                .alignItems(HorizontalAlign.Start)
+                .margin({ bottom: 20 })
+
+                // 柱状图组件 - 修复柱状图覆盖日期的问题
+                Column() {
+                  // Y轴标签和网格线
+                  Stack() {
+                    // Y轴刻度 - 动态调整以适应数据
+                    Column() {
+                      ForEach([1, 0.8, 0.6, 0.4, 0.2, 0], (ratio: number) => {
+                        Row() {
+                          Text(Math.round(this.maxDisplayValue * ratio).toString())
+                            .fontSize(12)
+                            .fontColor('#999')
+                            .width(50)
+                            .textAlign(TextAlign.End)
+                            .margin({ right: 10 })
+
+                          // 网格线
+                          Divider()
+                            .width('100%')
+                            .color('#eee')
+                        }
+                        .width('100%')
+                        .height(25)
+                      })
+                    }
+                    .height(150)
+                    .width('100%')
+                    .alignItems(HorizontalAlign.Start)
+
+                    // 使用单一的List组件展示柱子
+                    Column() {
+                      List({ space: 0 }) {
+                        ForEach(this.stepChartData, (item: ChartDataItem) => {
+                          ListItem() {
+                            Column() {
+                              // 柱子部分 - 确保柱子位于上方，不会延伸到下方标签区域
+                              Column() {
+                                if (item.value > 0) {
+                                  Column()
+                                    .width(this.chartMode === '月' ? 20 : 40)
+                                    .height(this.calculateBarHeight(item.value))
+                                    .backgroundColor('#FFD700')
+                                    .borderRadius(this.chartMode === '月' ? 3 : 5)
+                                }
+                              }
+                              .height(130) // 减小高度，避免延伸到日期区域
+                              .width('100%')
+                              .justifyContent(FlexAlign.End) // 确保柱子从底部向上增长
+                            }
+                            .alignItems(HorizontalAlign.Center)
+                          }
+                          .width(this.chartMode === '月' ? 40 : 60)
+                        })
+                      }
+                      .listDirection(Axis.Horizontal) // 水平列表
+                      .scrollBar(BarState.Auto) // 显示滚动条
+                      .scrollBarColor(Color.Gray)
+                      .scrollBarWidth(2)
+                      .edgeEffect(EdgeEffect.Spring) // 滚动到边缘时的弹性效果
+                      .width('100%')
+                      .height(130) // 减小高度，与柱子容器一致
+                    }
+                    .width('100%')
+                    .height(150)
+                    .margin({ left: 60 }) // 为Y轴标签留出空间
+                  }
+
+                  // 将日期标签单独放在下方，确保不被柱状图覆盖
+                  List() {
+                    ForEach(this.stepChartData, (item: ChartDataItem) => {
+                      ListItem() {
+                        Text(item.label)
+                          .fontSize(14)
+                          .fontColor('#333')
+                          .textAlign(TextAlign.Center)
+                          .width('100%')
+                          .padding({ top: 5, bottom: 5 })
+                      }
+                      .width(this.chartMode === '月' ? 40 : 60)
+                    })
+                  }
+                  .listDirection(Axis.Horizontal)
+                  .scrollBar(BarState.Off) // 隐藏日期部分的滚动条
+                  .width('100%')
+                  .height(30)
+                  .margin({ left: 60 }) // 与上方柱状图对齐
+                  .onScrollIndex((firstIndex: number) => {
+                    // 同步两个List的滚动位置
+                    // 注意：需要添加引用以实现此功能
+                    // this.chartListController.scrollTo({ index: firstIndex });
+                  })
+
+                  // 分隔线，明确分隔图表和日期区域
+                  Divider()
+                    .width('90%')
+                    .strokeWidth(1)
+                    .color('#ddd')
+                    .margin({ top: 5 })
+
+                  // 图表说明
+                  Text('← 左右滑动查看更多数据 →')
+                    .fontSize(12)
+                    .fontColor('#666')
+                    .textAlign(TextAlign.Center)
+                    .width('100%')
+                    .margin({ top: 5 })
+                }
+                .width('100%')
+                .margin({ bottom: 20 })
+
+                // 概览部分
+                Row() {
+                  Image($r('app.media.target'))
+                    .width(24)
+                    .height(24)
+                    .margin({ right: 10 })
+
+                  Text('本周概览')
+                    .subtitleText()
+                }
+                .width('100%')
+                .margin({ bottom: 10 })
+
+                Row() {
+                  Column() {
+                    Text(this.totalSteps.toString())
+                      .valueText()
+                    Text('总步数')
+                      .labelText()
+                      .margin({ top: 5 })
+                  }
+                  .layoutWeight(1)
+
+                  Column() {
+                    Text((this.totalSteps / 3 / 1000).toFixed(2))
+                      .valueText()
+                    Text('总距离(公里)')
+                      .labelText()
+                      .margin({ top: 5 })
+                  }
+                  .layoutWeight(1)
+                }
+                .width('100%')
+                .margin({ bottom: 20 })
+
+                Row() {
+                  Column() {
+                    Text(this.avgDailySteps.toString())
+                      .valueText()
+                    Text('日均步数')
+                      .labelText()
+                      .margin({ top: 5 })
+                  }
+                  .layoutWeight(1)
+
+                  Column() {
+                    // 使用正确的换算: 三步=一米，再转换为公里
+                    Text((this.avgDailySteps / 3 / 1000).toFixed(2))
+                      .valueText()
+                    Text('日均距离(公里)')
+                      .labelText()
+                      .margin({ top: 5 })
+                  }
+                  .layoutWeight(1)
+                }
+                .width('100%')
+
+                // 分割线
+                Divider()
+                  .width('90%')
+                  .height(1)
+                  .backgroundColor('#ddd')
+                  .margin({ top: 10, bottom: 10 })
+
+                // 身体成分分析部分
+                Row() {
+                  Image($r('app.media.bmi'))
+                    .width(24)
+                    .height(24)
+                    .margin({ right: 10 })
+
+                  Text('身体成分分析')
+                    .subtitleText()
+                }
+                .width('100%')
+                .margin({ bottom: 10 })
+
+                Row() {
+                  Column(){
+                    Text(this.myWeight.toString())
+                      .valueText()
+                    Text('体重 (kg)')
+                      .labelText()
+                      .margin({ top: 5 })
+                  }
+                  .layoutWeight(1)
+
+                  Column() {
+                    Text(this.myHeight.toString())
+                      .valueText()
+                    Text('身高 (cm)')
+                      .labelText()
+                      .margin({ top: 5 })
+                  }
+                  .layoutWeight(1)
+                }
+                .width('100%')
+                .margin({ bottom: 10 })
+
+                Row() {
+                  Column(){
+                    Text(this.bmi.toFixed(1))
+                      .valueText()
+                    Text('BMI')
+                      .labelText()
+                      .margin({ top: 5 })
+                  }
+                  .layoutWeight(1)
+
+                  Column() {
+                    Text('    ')
+                      .valueText()
+                  }
+                  .layoutWeight(1)
+                }
+                .width('100%')
+                .margin({ bottom: 10 })
+              }
+              .width('100%')
+              .padding(15)
+              .borderRadius(8)
+              .backgroundColor('#f5f5f5')
+              .margin({ top: 10, bottom: 20 })
+            }
+            .backgroundColor('#f5f5f5')
+            .width('100%')
+            .alignItems(HorizontalAlign.Center)
+          }
+          .scrollBar(BarState.Auto)
+          .onScrollFrameBegin((offset: number) => {
+            if (offset <= -100) {
+              this.refreshData();
+              return { offsetRemain: 0 };
+            }
+            return { offsetRemain: offset };
           })
         }
-        .tabBar({ text: '我的运动' })
+        .tabBar({ text: '我的运动'})
 
         // 个人中心页面
         TabContent() {
-          // 个人中心组件
-          ProfileTabComponent({
-            username: $username,
-            userId: $userId,
-            refreshDataFunc: this.refreshDataFunc
-          })
+          Column() {
+            Text('个人中心')
+              .titleText()
+            Column() {
+              Row() {
+                Column() {
+                  // 用户头像
+                  Image($r('app.media.image_1'))
+                    .width(80)
+                    .height(80)
+                    .borderRadius(40)
+                }
+                .margin({ right: 20 })
+
+                Column() {
+                  Row() {
+                    Text('用户名：')
+                      .fontSize(12)
+                      .fontWeight(FontWeight.Bold)
+                      .width('30%')
+                    Text(this.username)
+                      .fontSize(16)
+                      .width('70%')
+                  }
+                  .width('100%')
+                  .padding({ top: 5, bottom: 5 })
+
+                  Row() {
+                    Text('用户ID：')
+                      .fontSize(12)
+                      .fontWeight(FontWeight.Bold)
+                      .width('30%')
+                    Text(this.userId.toString())
+                      .fontSize(16)
+                      .width('70%')
+                  }
+                  .width('100%')
+                  .padding({ top: 5, bottom: 5 })
+                }
+                .layoutWeight(1)
+                .alignItems(HorizontalAlign.Start)
+              }
+              .width('100%')
+              .padding(10)
+
+              Button('编辑个人资料')
+                .primaryButton()
+                .onClick(() => {
+                  hilog.info(0x0000, TAG, `Navigating to myInfo with username: ${this.username}, userId: ${this.userId}`);
+                  router.pushUrl({
+                    url: 'pages/myInfo',
+                    params: {
+                      username: this.username,
+                      userId: this.userId,
+                      isEdit: true
+                    }
+                  }, router.RouterMode.Standard, (err) => {
+                    if (err) {
+                      console.error(`跳转到个人信息页面失败: ${err.code}, ${err.message}`);
+                      promptAction.showToast({ message: '跳转失败，请重试' });
+                      return;
+                    }
+                    console.info('跳转到个人信息页面成功');
+                  });
+                })
+            }
+            .cardContainer()
+            .margin({ bottom: 20 })
+
+            // 使用@Extend定义的菜单项组件
+            Column() {
+              // 健康数据分析菜单项
+              Row() {
+                Image($r('app.media.data'))
+                  .width(30)
+                  .height(30)
+                  .margin({ right: 10 })
+                Text('健康数据分析')
+                  .fontSize(16)
+                  .layoutWeight(1)
+                Image($r('app.media.data'))
+                  .width(20)
+                  .height(20)
+              }
+              .menuItem()
+              .onClick(() => {
+                this.ClickJumpToShowData();
+              })
+
+              // 健康目标设置菜单项
+              Row() {
+                Image($r('app.media.target'))
+                  .width(30)
+                  .height(30)
+                  .margin({ right: 10 })
+                Text('健康目标设置')
+                  .fontSize(16)
+                  .layoutWeight(1)
+                Image($r('app.media.target'))
+                  .width(20)
+                  .height(20)
+              }
+              .menuItem()
+              .onClick(() => {
+                promptAction.showToast({
+                  message: '健康目标设置功能即将上线',
+                  duration: 2000
+                });
+              })
+
+              // 健康提醒菜单项
+              Row() {
+                Image($r('app.media.remind'))
+                  .width(30)
+                  .height(30)
+                  .margin({ right: 10 })
+                Text('健康提醒')
+                  .fontSize(16)
+                  .layoutWeight(1)
+                Image($r('app.media.remind'))
+                  .width(20)
+                  .height(20)
+              }
+              .menuItem()
+              .onClick(() => {
+                promptAction.showToast({
+                  message: '健康提醒功能即将上线',
+                  duration: 2000
+                });
+              })
+
+              // 设置菜单项
+              Row() {
+                Image($r('app.media.settings'))
+                  .width(30)
+                  .height(30)
+                  .margin({ right: 10 })
+                Text('设置')
+                  .fontSize(16)
+                  .layoutWeight(1)
+                Image($r('app.media.settings'))
+                  .width(20)
+                  .height(20)
+              }
+              .menuItem()
+              .onClick(() => {
+                promptAction.showToast({
+                  message: '设置功能即将上线',
+                  duration: 2000
+                });
+              })
+
+              // 退出登录菜单项
+              Row() {
+                Image($r('app.media.logout'))
+                  .width(30)
+                  .height(30)
+                  .margin({ right: 10 })
+                Text('退出登录')
+                  .fontSize(16)
+                  .layoutWeight(1)
+                Image($r('app.media.logout'))
+                  .width(20)
+                  .height(20)
+              }
+              .menuItem()
+              .onClick(() => {
+                router.clear();
+                router.pushUrl({
+                  url: 'pages/Login'
+                }, router.RouterMode.Standard, (err) => {
+                  if (err) {
+                    console.error(`退出登录失败 code: ${err.code}, message: ${err.message}`);
+                    promptAction.showToast({ message: '退出登录失败，请重试' });
+                    return;
+                  }
+                  console.info('退出登录成功');
+                });
+              })
+            }
+            .width('90%')
+            .margin({ bottom: 20 })
+          }
+          .width('100%')
+          .height('100%')
+          .alignItems(HorizontalAlign.Center)
+          .backgroundColor('#f5f5f5')
         }
         .tabBar({ text: '个人中心' })
       }

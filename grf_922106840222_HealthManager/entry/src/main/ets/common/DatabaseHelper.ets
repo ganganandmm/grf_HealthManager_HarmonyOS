@@ -513,9 +513,6 @@ export class DatabaseHelper {
       return false;
     }
   }
-  // 在 DatabaseHelper 类中添加以下方法
-
-  // 在 DatabaseHelper 类中添加以下方法
 
   public async updateUserInfo(user: User): Promise<boolean> {
     if (!this.rdbStore || !user.id) {
@@ -523,12 +520,8 @@ export class DatabaseHelper {
       return false;
     }
 
-    // 构建更新的值，只更新非密码字段，并处理undefined值
     const valuesBucket: relationalStore.ValuesBucket = {};
 
-    // 不更新 username 和 password，这些字段不应该在个人信息编辑中修改
-
-    // 对于数值类型的字段，确保传入正确的类型或null
     if (user.age !== undefined) {
       valuesBucket.age = user.age;
     } else {
@@ -738,4 +731,5 @@ export class DatabaseHelper {
       return false;
     }
   }
+
 }
