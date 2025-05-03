@@ -1,19 +1,36 @@
-// 步数记录模型
 export class StepRecord {
-  id?: number;
+  id?: string; // 修改为string类型，保持一致
   userId: number;
   date: string;
   steps: number;
 
-  constructor(userId: number, date: string, steps: number, id?: number) {
+  constructor(userId: number, date: string, steps: number, id?: string) {
     this.userId = userId;
     this.date = date;
     this.steps = steps;
     this.id = id;
-
   }
 }
 
+// 确保StepTimeRecord实现正确
+export class StepTimeRecord {
+  id?: number;
+  stepRecordId: number; // 关联到总步数记录
+  time: string;
+  steps: number;
+
+  constructor(stepRecordId: number, time: string, steps: number) {
+    this.stepRecordId = stepRecordId;
+    this.time = time;
+    this.steps = steps;
+  }
+}
+
+// 确保正确定义StepTimeInput接口
+export interface StepTimeInput {
+  time: string;
+  steps: number;
+}
 // 心率记录模型
 export class HeartRateRecord {
   id?: number;

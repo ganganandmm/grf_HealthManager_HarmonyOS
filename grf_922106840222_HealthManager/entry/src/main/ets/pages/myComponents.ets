@@ -1,4 +1,4 @@
-import { HeartRateRecord, WaterRecord } from "../common/HealthDataModel";
+import { HeartRateRecord, StepTimeRecord, WaterRecord } from "../common/HealthDataModel";
 @Extend(Text) function labelText() {
   .fontSize(16)
   .fontColor('#666')
@@ -108,5 +108,34 @@ export struct DataInputRow {
     }
     .width('100%')
     .margin({ bottom: 10 })
+  }
+}
+
+@Component
+export struct StepTimeRecordItem {
+  @Prop record: StepTimeRecord;
+
+  build() {
+    Row() {
+      Text(this.record.time)
+        .fontSize(16)
+        .fontWeight(FontWeight.Bold)
+        .width('30%')
+
+      Text(`${this.record.steps} 步`)
+        .fontSize(16)
+        .fontColor('#1698CE')
+        .width('40%')
+
+      Text(`约 ${(this.record.steps / 3 / 1000).toFixed(2)} 公里`)
+        .fontSize(14)
+        .fontColor('#666')
+        .width('30%')
+    }
+    .width('100%')
+    .padding(10)
+    .borderRadius(8)
+    .backgroundColor('#f7f7f7')
+    .margin({ bottom: 8 })
   }
 }

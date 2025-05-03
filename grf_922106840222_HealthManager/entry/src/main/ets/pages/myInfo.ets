@@ -3,6 +3,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import promptAction from '@ohos.promptAction';
 import { DatabaseHelper } from '../common/DatabaseHelper';
 import { User } from '../common/UserModel';
+import { StepTimeRecord } from '../common/HealthDataModel';
 
 const TAG: string = 'MyInfo';
 
@@ -449,5 +450,34 @@ struct MyInfo {
     .width('100%')
     .height('100%')
     .backgroundColor('#f5f5f5')
+  }
+}
+
+@Component
+export struct StepTimeRecordItem {
+   record!: StepTimeRecord;
+
+  build() {
+    Row() {
+      Text(this.record.time)
+        .fontSize(16)
+        .fontWeight(FontWeight.Bold)
+        .width('30%')
+
+      Text(`${this.record.steps} 步`)
+        .fontSize(16)
+        .fontColor('#1698CE')
+        .width('40%')
+
+      Text(`约 ${(this.record.steps / 3 / 1000).toFixed(2)} 公里`)
+        .fontSize(14)
+        .fontColor('#666')
+        .width('30%')
+    }
+    .width('100%')
+    .padding(10)
+    .borderRadius(8)
+    .backgroundColor('#f7f7f7')
+    .margin({ bottom: 8 })
   }
 }

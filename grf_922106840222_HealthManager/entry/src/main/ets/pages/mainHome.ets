@@ -3,13 +3,12 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { JSON } from '@kit.ArkTS';
 import common from '@ohos.app.ability.common';
 import { DatabaseHelper } from '../common/DatabaseHelper';
-import { StepRecord, HeartRateRecord, SleepRecord, WaterRecord } from '../common/HealthDataModel';
+import { StepRecord, HeartRateRecord, SleepRecord, WaterRecord, StepTimeRecord } from '../common/HealthDataModel';
 import Want from '@ohos.app.ability.Want'
 import promptAction from '@ohos.promptAction';
 import {HeartRateInputDialog, StepInputDialog, WaterInputDialog} from './Dialog'
-import {HealthDataCard,HeartRateRecordItem,WaterRecordItem,DataInputRow} from './myComponents'
-import Notification from '@ohos.notification';
-import notification from '@ohos.notificationManager'
+import {HealthDataCard,HeartRateRecordItem,WaterRecordItem,DataInputRow,StepTimeRecordItem} from './myComponents'
+
 export const TAG: string = 'mainHome';
 @Extend(Text) function titleText() {
   .fontSize(20)
@@ -99,6 +98,11 @@ interface ChartDataItem {
   value: number;
 }
 
+interface StepTimeInput {
+  time: string;
+  steps: number;
+}
+
 @Entry
 @Component
 struct MainHome {
@@ -132,14 +136,14 @@ struct MainHome {
   @State dateRangeText: string = '';
   @State totalSteps: number = 0;
   @State avgDailySteps: number = 0;
-  @State maxDisplayValue: number = 15000; // 图表纵坐标最大值
+  @State maxDisplayValue: number = 15000;
   @State canvasContext: CanvasRenderingContext2D | null = null;
-  @State selectedDate: Date = new Date(); // 当前选中的日期
-  @State isCalendarVisible: boolean = false; // 控制日历显示与隐藏
+  @State selectedDate: Date = new Date();
+  @State isCalendarVisible: boolean = false;
 
-  @State stepInputTimes: string[] = ['08:00']; // Default time
-  @State stepInputValues: string[] = ['0']; // Default step value
-
+  @State stepInputTimes: string[] = ['08:00'];
+  @State stepInputValues: string[] = ['0'];
+  @State stepTimeRecords: StepTimeRecord[] = [];
   heartRateDialogController: CustomDialogController = new CustomDialogController({
     builder: HeartRateInputDialog({
       heartRateInputTimes: this.heartRateInputTimes,
@@ -177,6 +181,7 @@ struct MainHome {
     alignment: DialogAlignment.Center,
     customStyle: true
   });
+
   aboutToAppear() {
     const params = router.getParams() as RouteParams;
     if (params) {
@@ -224,16 +229,27 @@ struct MainHome {
         if (userInfo) {
           this.myHeight = userInfo.height || 0;
           this.myWeight = userInfo.weight || 0;
-          // 计算BMI
           if (this.myHeight > 0 && this.myWeight > 0) {
-            // BMI = 体重(kg) / (身高(m)^2)
             this.bmi = this.myWeight / Math.pow(this.myHeight / 100, 2);
           }
         }
         await this.loadHealthData();
         await this.updateStepChartData();
       }
+      const stepRecords = await this.dbHelper.getStepRecords(this.userId, this.currentDate);
+      if (stepRecords.length > 0) {
+        this.steps = stepRecords[0].steps;
 
+        // 加载步数时间记录
+        if (stepRecords[0].id) {
+          this.stepTimeRecords = await this.dbHelper.getStepTimeRecords(Number(stepRecords[0].id));
+        } else {
+          this.stepTimeRecords = [];
+        }
+      } else {
+        this.steps = 0;
+        this.stepTimeRecords = [];
+      }
       this.isNewLogin = false;
     } catch (error) {
       const errorMessage: string = error instanceof Error ? error.message : String(error);
@@ -245,12 +261,10 @@ struct MainHome {
     try {
       hilog.info(0x0000, TAG, 'Checking for data updates');
       if (this.userId > 0) {
-        // 刷新用户信息
         const userInfo = await this.dbHelper.getUserById(this.userId);
         if (userInfo) {
           this.myHeight = userInfo.height || 0;
           this.myWeight = userInfo.weight || 0;
-          // 更新BMI
           if (this.myHeight > 0 && this.myWeight > 0) {
             this.bmi = this.myWeight / Math.pow(this.myHeight / 100, 2);
           }
@@ -308,7 +322,6 @@ struct MainHome {
       let total = 0;
       let dateDisplay = '';
 
-      // Parse current date
       const currentDateObj = new Date(this.currentDate);
 
       switch (this.chartMode) {
@@ -335,7 +348,6 @@ struct MainHome {
           break;
 
         case '周':
-          // Get start of week (Monday)
           const today = new Date(this.currentDate);
           const currentDayOfWeek = today.getDay() || 7; // Convert Sunday from 0 to 7
           const mondayOfWeek = new Date(today);
@@ -344,7 +356,6 @@ struct MainHome {
           let weekTotal = 0;
           let dayCount = 0;
 
-          // Get data for each day of the week
           for (let i = 0; i < 7; i++) {
             const date = new Date(mondayOfWeek);
             date.setDate(mondayOfWeek.getDate() + i);
@@ -380,7 +391,7 @@ struct MainHome {
           let monthTotal = 0;
           let activeDays = 0;
 
-          // 使用完整的月份天数，支持通过滚动查看全部数据
+
           for (let i = 1; i <= daysInMonth; i++) {
             // Format date string YYYY-MM-DD
             const monthStr = (month + 1).toString().padStart(2, '0');
@@ -418,7 +429,6 @@ struct MainHome {
 
   async openCalendar() {
     try {
-      // 构造一个Want，用于启动系统日历应用
       const want: Want = {
         deviceId: "",
         bundleName: "com.huawei.calendar",
@@ -440,17 +450,14 @@ struct MainHome {
     }
   }
 
-  // 计算柱状图高度
   calculateBarHeight(value: number): number {
-    const maxHeight = 120; // 减小最大高度，确保不会超出容器
+    const maxHeight = 120;
     const calculatedHeight = (value / this.maxDisplayValue) * maxHeight;
-    return Math.max(calculatedHeight, value > 0 ? 5 : 0); // 确保即使数值很小，柱子也至少有5px高度
+    return Math.max(calculatedHeight, value > 0 ? 5 : 0);
   }
 
-  // 检查是否有通过Want接收到的数据 - 更新为Stage模式API
   async checkReceivedData() {
     try {
-      // 在Stage模式中，通过abilityInfo获取传递的参数
       if (this.context && this.context.abilityInfo && this.context.abilityInfo.metadata) {
         const parameters = this.context.abilityInfo.metadata as MetadataParams;
         const healthDataParam = parameters.healthData;
@@ -458,7 +465,6 @@ struct MainHome {
           this.receivedHealthData = healthDataParam;
           hilog.info(0x0000, TAG, `Received health data: ${this.receivedHealthData}`);
 
-          // When new data is received, refresh our own data
           this.refreshData();
         }
       }
@@ -468,12 +474,10 @@ struct MainHome {
     }
   }
 
-  // 准备健康数据并通过Want分享 - 更新为Stage模式API
   async shareHealthData() {
     try {
-      // Before sharing, refresh data to ensure it's up to date
       await this.refreshData();
-      // 创建健康数据对象
+
       const healthData: HealthData = {
         userId: this.userId,
         username: this.username,
@@ -487,10 +491,10 @@ struct MainHome {
       // 将数据转换为JSON字符串
       const dataString = JSON.stringify(healthData);
       const want: Want = {
-        bundleName: 'com.example.target', // Replace with target app
-        abilityName: 'EntryAbility',      // Replace with target ability
-        moduleName: 'entry',              // Optional module name
-        parameters: {                     // Use a plain object for parameters
+        bundleName: 'com.example.target',
+        abilityName: 'EntryAbility',
+        moduleName: 'entry',
+        parameters: {
           healthData: dataString
         }
       };
@@ -532,19 +536,16 @@ struct MainHome {
     });
   }
 
-  // Add manual refresh method that can be triggered by a button
   manualRefresh() {
     hilog.info(0x0000, TAG, 'Manual refresh triggered');
     this.refreshData();
   }
 
-  // 添加心率输入行
   addHeartRateInputRow() {
     this.heartRateInputTimes.push('');
     this.heartRateInputValues.push('');
   }
 
-  // 删除心率输入行
   removeHeartRateInputRow(index: number) {
     if (this.heartRateInputTimes.length > 1) {
       this.heartRateInputTimes.splice(index, 1);
@@ -552,13 +553,11 @@ struct MainHome {
     }
   }
 
-  // 添加饮水输入行
   addWaterInputRow() {
     this.waterInputTimes.push('');
     this.waterInputValues.push('');
   }
 
-  // 删除饮水输入行
   removeWaterInputRow(index: number) {
     if (this.waterInputTimes.length > 1) {
       this.waterInputTimes.splice(index, 1);
@@ -566,11 +565,10 @@ struct MainHome {
     }
   }
   addStepInputRow() {
-    this.stepInputTimes.push('');
-    this.stepInputValues.push('');
+    this.stepInputTimes.push('08:00');
+    this.stepInputValues.push('0');
   }
 
-  // Remove step input row
   removeStepInputRow(index: number) {
     if (this.stepInputTimes.length > 1) {
       this.stepInputTimes.splice(index, 1);
@@ -578,7 +576,7 @@ struct MainHome {
     }
   }
 
-  // 批量保存心率数据
+
   async saveMultiHeartRates() {
     if (this.userId <= 0) {
       promptAction.showToast({ message: '用户ID无效' });
@@ -622,12 +620,11 @@ struct MainHome {
     }
     try {
       let successCount = 0;
-      // 遍历所有输入行
       for (let i = 0; i < this.waterInputTimes.length; i++) {
         const time = this.waterInputTimes[i].trim();
         const amount = parseInt(this.waterInputValues[i]) || 0;
         if (!time || !this.isValidTimeFormat(time) || amount <= 0) {
-          continue; // 跳过无效输入
+          continue;
         }
         const record = new WaterRecord(this.userId, this.currentDate, time, amount);
         if (await this.dbHelper.insertWaterRecord(record)) {
@@ -637,7 +634,7 @@ struct MainHome {
 
       if (successCount > 0) {
         promptAction.showToast({ message: `成功保存 ${successCount} 条饮水记录` });
-        this.refreshData(); // 刷新数据
+        this.refreshData();
       } else {
         promptAction.showToast({ message: '没有有效的饮水记录被保存' });
       }
@@ -647,57 +644,100 @@ struct MainHome {
       promptAction.showToast({ message: '保存饮水记录失败' });
     }
   }
-  async saveMultiStepRecords() {
+
+  // 在mainHome.ets中增强saveMultiStepRecords方法
+  async saveMultiStepRecords(): Promise<void> {
     if (this.userId <= 0) {
+      hilog.error(0x0000, TAG, `Invalid userId: ${this.userId}`);
       promptAction.showToast({ message: '用户ID无效' });
       return;
     }
+
     try {
+      hilog.info(0x0000, TAG, `Starting to save multi step records for user ${this.userId}`);
       let successCount = 0;
-      let totalSteps = 0;
+
+      // 收集有效的时间步数记录
+      const validRecords: StepTimeInput[] = [];
+
+      // 记录数据验证过程
+      hilog.info(0x0000, TAG, `Total input rows: ${this.stepInputTimes.length}`);
+
+      // 遍历所有输入行
       for (let i = 0; i < this.stepInputTimes.length; i++) {
         const time = this.stepInputTimes[i].trim();
-        const steps = parseInt(this.stepInputValues[i]) || 0;
+        const stepsStr = this.stepInputValues[i];
+        const steps = parseInt(stepsStr) || 0;
 
-        // Validate time format and step count
-        if (!time || !this.isValidTimeFormat(time) || steps <= 0) {
-          continue; // Skip invalid inputs
+        hilog.info(0x0000, TAG, `Validating row ${i}: time=${time}, steps=${steps}`);
+
+        // 验证时间格式和步数
+        if (!time) {
+          hilog.warn(0x0000, TAG, `Row ${i}: Empty time`);
+          continue;
         }
-        totalSteps += steps;
-        const record = new StepRecord(this.userId, this.currentDate, steps);
-        if (await this.dbHelper.insertStepRecord(record)) {
-          successCount++;
+
+        if (!this.isValidTimeFormat(time)) {
+          hilog.warn(0x0000, TAG, `Row ${i}: Invalid time format: ${time}`);
+          continue;
         }
+
+        if (steps <= 0) {
+          hilog.warn(0x0000, TAG, `Row ${i}: Invalid steps value: ${steps}`);
+          continue;
+        }
+
+        // 创建记录对象并添加到数组
+        const record: StepTimeInput = {
+          time: time,
+          steps: steps
+        };
+
+        validRecords.push(record);
+        successCount++;
+        hilog.info(0x0000, TAG, `Row ${i}: Valid record added: time=${time}, steps=${steps}`);
       }
 
+      hilog.info(0x0000, TAG, `Collected ${successCount} valid records out of ${this.stepInputTimes.length} inputs`);
 
       if (successCount > 0) {
-        // Query existing step record
-        const stepRecords = await this.dbHelper.getStepRecords(this.userId, this.currentDate);
-        if (stepRecords.length > 0) {
-          // Update existing record with new total
-          const record = stepRecords[0];
-          record.steps = totalSteps;
-          if (await this.dbHelper.updateStepRecord(record)) {
-            promptAction.showToast({ message: `成功保存 ${successCount} 条步数记录，总步数: ${totalSteps}` });
-          }
+        // 使用批量保存方法
+        hilog.info(0x0000, TAG, `Calling batchSaveStepRecords with ${validRecords.length} records`);
+
+        const result = await this.dbHelper.batchSaveStepRecords(
+          this.userId,
+          this.currentDate,
+          validRecords
+        );
+
+        if (result) {
+          // 计算总步数
+          const totalSteps = validRecords.reduce((sum, record) => sum + record.steps, 0);
+          hilog.info(0x0000, TAG, `Successfully saved ${successCount} records with total steps: ${totalSteps}`);
+
+          promptAction.showToast({
+            message: `成功保存 ${successCount} 条步数记录，总步数: ${totalSteps}`
+          });
+
+          // 刷新数据
+          hilog.info(0x0000, TAG, 'Refreshing data after saving');
+          await this.refreshData();
         } else {
-          // Create new record with total
-          const record = new StepRecord(this.userId, this.currentDate, totalSteps);
-          if (await this.dbHelper.insertStepRecord(record)) {
-            promptAction.showToast({ message: `成功保存 ${successCount} 条步数记录，总步数: ${totalSteps}` });
-          }
+          hilog.error(0x0000, TAG, 'batchSaveStepRecords returned false');
+          promptAction.showToast({ message: '保存步数记录失败' });
         }
-        this.refreshData(); // Refresh data
       } else {
+        hilog.warn(0x0000, TAG, 'No valid records to save');
         promptAction.showToast({ message: '没有有效的步数记录被保存' });
       }
     } catch (error) {
       const errorMessage: string = error instanceof Error ? error.message : String(error);
-      hilog.error(0x0000, TAG, `Failed to save step records: ${errorMessage}`);
-      promptAction.showToast({ message: '保存步数记录失败' });
+      hilog.error(0x0000, TAG, `Exception in saveMultiStepRecords: ${errorMessage}`);
+      hilog.error(0x0000, TAG, `Stack trace: ${error instanceof Error ? error.stack : 'No stack trace'}`);
+      promptAction.showToast({ message: '保存步数记录失败: ' + errorMessage });
     }
   }
+
   isValidTimeFormat(time: string): boolean {
     const regex = /^([01]?[0-9]|2[0-3]):([0-5][0-9])$/;
     return regex.test(time);
@@ -942,8 +982,10 @@ struct MainHome {
 
                   // Add batch input steps button
                   Button('批量输入步数')
-                    .secondaryButton('#1698CE')
-                    .opacity(0.8)
+                    .width('90%')
+                    .height(40)
+                    .backgroundColor('#1698CE')
+                    .margin({ bottom: 10 })
                     .onClick(() => {
                       this.stepInputTimes = ['08:00'];
                       this.stepInputValues = ['0'];
@@ -1256,7 +1298,7 @@ struct MainHome {
                     .height(150)
                     .width('100%')
                     .alignItems(HorizontalAlign.Start)
-                    
+
                     Column() {
                       List({ space: 0 }) {
                         ForEach(this.stepChartData, (item: ChartDataItem) => {
@@ -1394,6 +1436,55 @@ struct MainHome {
                 }
                 .width('100%')
 
+                // 在运动选项卡中找到"今日步数详细记录"区域，修改为：
+                Column() {
+                  Row() {
+                    Image($r('app.media.target'))
+                      .width(24)
+                      .height(24)
+                      .margin({ right: 10 })
+
+                    Text('今日步数详细记录')
+                      .subtitleText()
+                  }
+                  .width('100%')
+                  .margin({ bottom: 10 })
+
+                  if (this.stepTimeRecords.length > 0) {
+                    List() {
+                      ForEach(this.stepTimeRecords, (item: StepTimeRecord) => {
+                        ListItem() {
+                          StepTimeRecordItem({ record: item })
+                        }
+                      })
+                    }
+                    .width('100%')
+                    .height(this.stepTimeRecords.length > 3 ? 200 : undefined)
+                    .divider({ strokeWidth: 1, color: '#eeeeee' })
+                  } else {
+                    Text('暂无详细步数记录')
+                      .fontSize(14)
+                      .fontColor('#999')
+                      .padding(10)
+                  }
+                }
+                .width('100%')
+                .padding(15)
+                .borderRadius(8)
+                .backgroundColor('#f5f5f5')
+                .margin({ top: 10, bottom: 20 })
+
+                // 添加批量输入步数按钮
+                Button('批量输入步数')
+                  .width('90%')
+                  .height(40)
+                  .backgroundColor('#1698CE')
+                  .margin({ top: 10, bottom: 20 })
+                  .onClick(() => {
+                    this.stepInputTimes = ['08:00'];
+                    this.stepInputValues = ['0'];
+                    this.stepDialogController.open();
+                  })
                 // 分割线
                 Divider()
                   .width('90%')

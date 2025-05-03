@@ -1,7 +1,7 @@
 import relationalStore from '@ohos.data.relationalStore';
 import { User } from './UserModel';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { StepRecord, HeartRateRecord, SleepRecord, WaterRecord } from './HealthDataModel';
+import { StepRecord, HeartRateRecord, SleepRecord, WaterRecord, StepTimeRecord, StepTimeInput } from './HealthDataModel';
 
 const TAG: string = 'DatabaseHelper';
 
@@ -15,7 +15,6 @@ const STORE_CONFIG: StoreConfig = {
   securityLevel: relationalStore.SecurityLevel.S1
 };
 
-// 更新SQL_CREATE_USER_TABLE语句，添加新的字段
 const SQL_CREATE_USER_TABLE = 'CREATE TABLE IF NOT EXISTS user ' +
   '(id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
   'username TEXT NOT NULL, ' +
@@ -60,6 +59,8 @@ const SQL_CREATE_WATER_TABLE = 'CREATE TABLE IF NOT EXISTS water_record ' +
   'time TEXT NOT NULL, ' +
   'amount INTEGER NOT NULL, ' +
   'FOREIGN KEY (user_id) REFERENCES user(id))';
+
+
 @Observed
 export class DatabaseHelper {
   private rdbStore: relationalStore.RdbStore | null = null;
@@ -69,14 +70,24 @@ export class DatabaseHelper {
     this.context = context;
   }
 
+  // 修改initDatabase方法，确保步数时间记录表创建
   public async initDatabase(): Promise<boolean> {
     try {
+      hilog.info(0x0000, TAG, 'Initializing database');
       this.rdbStore = await relationalStore.getRdbStore(this.context, STORE_CONFIG);
+
+      // 创建基本表
       await this.rdbStore.executeSql(SQL_CREATE_USER_TABLE, []);
       await this.rdbStore.executeSql(SQL_CREATE_STEP_TABLE, []);
       await this.rdbStore.executeSql(SQL_CREATE_HEART_RATE_TABLE, []);
       await this.rdbStore.executeSql(SQL_CREATE_SLEEP_TABLE, []);
       await this.rdbStore.executeSql(SQL_CREATE_WATER_TABLE, []);
+
+      // 创建步数时间记录表，添加详细日志
+      const stepTimeTableCreated = await this.createStepTimeRecordsTable();
+      if (!stepTimeTableCreated) {
+        hilog.error(0x0000, TAG, 'Failed to create step time records table');
+      }
 
       // 插入测试用户
       await this.insertTestUser();
@@ -90,7 +101,6 @@ export class DatabaseHelper {
 
   private async insertTestUser(): Promise<void> {
     try {
-      // 检查测试用户是否已存在
       const users = await this.queryUserByUsername('admin');
       if (users.length === 0) {
         // 添加一个测试用户
@@ -152,10 +162,360 @@ export class DatabaseHelper {
       return -1;
     }
   }
-
-  public async queryUserByUsername(username: string): Promise<User[]> {
+  // 在DatabaseHelper.ets中，修复步数时间记录表的创建方法
+  async createStepTimeRecordsTable(): Promise<boolean> {
     if (!this.rdbStore) {
       hilog.error(0x0000, TAG, 'RdbStore is not initialized');
+      return false;
+    }
+
+    try {
+      hilog.info(0x0000, TAG, 'Creating step_time_record table if not exists');
+
+      const SQL_CREATE_STEP_TIME_RECORDS_TABLE =
+        'CREATE TABLE IF NOT EXISTS step_time_record ' +
+          '(id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
+          'step_record_id INTEGER NOT NULL, ' +
+          'time TEXT NOT NULL, ' +
+          'steps INTEGER NOT NULL, ' +
+          'FOREIGN KEY (step_record_id) REFERENCES step_record(id))';
+
+      // 检查表是否已存在
+      try {
+        const checkTableSql = "SELECT name FROM sqlite_master WHERE type='table' AND name='step_time_record'";
+        const resultSet = await this.rdbStore.querySql(checkTableSql, []);
+        const tableExists = resultSet.rowCount > 0;
+        resultSet.close();
+
+        if (tableExists) {
+          hilog.info(0x0000, TAG, 'step_time_record table already exists');
+        } else {
+          hilog.info(0x0000, TAG, 'step_time_record table does not exist, creating now');
+        }
+      } catch (checkError) {
+        hilog.error(0x0000, TAG, `Error checking if table exists: ${checkError}`);
+      }
+
+      // 执行创建表SQL
+      await this.rdbStore.executeSql(SQL_CREATE_STEP_TIME_RECORDS_TABLE, []);
+
+      // 验证表是否创建成功
+      try {
+        const verifyTableSql = "SELECT name FROM sqlite_master WHERE type='table' AND name='step_time_record'";
+        const resultSet = await this.rdbStore.querySql(verifyTableSql, []);
+        const tableExists = resultSet.rowCount > 0;
+        resultSet.close();
+
+        if (tableExists) {
+          hilog.info(0x0000, TAG, 'Successfully created or verified step_time_record table');
+        } else {
+          hilog.error(0x0000, TAG, 'Failed to create step_time_record table, not found after creation attempt');
+          return false;
+        }
+      } catch (verifyError) {
+        hilog.error(0x0000, TAG, `Error verifying table creation: ${verifyError}`);
+      }
+
+      return true;
+    } catch (error) {
+      hilog.error(0x0000, TAG, `Failed to create step_time_record table: ${error}`);
+      return false;
+    }
+  }
+  async insertStepTimeRecord(record: StepTimeRecord): Promise<boolean> {
+    if (!this.rdbStore) {
+      hilog.error(0x0000, TAG, 'RdbStore is not initialized');
+      return false;
+    }
+
+    try {
+      hilog.info(0x0000, TAG, `Inserting step time record: stepRecordId=${record.stepRecordId}, time=${record.time}, steps=${record.steps}`);
+
+      // 验证表是否存在
+      try {
+        const checkTableSql = "SELECT name FROM sqlite_master WHERE type='table' AND name='step_time_record'";
+        const resultSet = await this.rdbStore.querySql(checkTableSql, []);
+        const tableExists = resultSet.rowCount > 0;
+        resultSet.close();
+
+        if (!tableExists) {
+          hilog.error(0x0000, TAG, 'step_time_record table does not exist, attempting to create');
+          const created = await this.createStepTimeRecordsTable();
+          if (!created) {
+            hilog.error(0x0000, TAG, 'Failed to create step_time_record table');
+            return false;
+          }
+        }
+      } catch (checkError) {
+        hilog.error(0x0000, TAG, `Error checking if table exists: ${checkError}`);
+      }
+
+      const valuesBucket: relationalStore.ValuesBucket = {
+        'step_record_id': record.stepRecordId,
+        'time': record.time,
+        'steps': record.steps
+      };
+
+      hilog.debug(0x0000, TAG, `ValuesBucket for insertion: ${JSON.stringify(valuesBucket)}`);
+
+      const rowId = await this.rdbStore.insert('step_time_record', valuesBucket);
+      hilog.info(0x0000, TAG, `Inserted step time record with rowId: ${rowId}`);
+      return rowId >= 0;
+    } catch (error) {
+      hilog.error(0x0000, TAG, `Failed to insert step time record: ${error}`);
+      return false;
+    }
+  }
+
+  // 查询指定步数记录的所有时间点记录
+  async getStepTimeRecords(stepRecordId: number): Promise<StepTimeRecord[]> {
+    if (!this.rdbStore) {
+      hilog.error(0x0000, TAG, 'RdbStore is not initialized');
+      return [];
+    }
+
+    try {
+      hilog.info(0x0000, TAG, `Querying step time records for stepRecordId: ${stepRecordId}`);
+
+      // 验证表是否存在
+      try {
+        const checkTableSql = "SELECT name FROM sqlite_master WHERE type='table' AND name='step_time_record'";
+        const resultSet = await this.rdbStore.querySql(checkTableSql, []);
+        const tableExists = resultSet.rowCount > 0;
+        resultSet.close();
+
+        if (!tableExists) {
+          hilog.warn(0x0000, TAG, 'step_time_record table does not exist, creating and returning empty array');
+          await this.createStepTimeRecordsTable();
+          return [];
+        }
+      } catch (checkError) {
+        hilog.error(0x0000, TAG, `Error checking if table exists: ${checkError}`);
+      }
+
+      const predicates = new relationalStore.RdbPredicates('step_time_record');
+      predicates.equalTo('step_record_id', stepRecordId);
+      predicates.orderByAsc('time');
+
+      hilog.debug(0x0000, TAG, `Executing query with predicates: step_record_id=${stepRecordId}`);
+
+      const resultSet = await this.rdbStore.query(predicates, ['id', 'step_record_id', 'time', 'steps']);
+      hilog.info(0x0000, TAG, `Query returned ${resultSet.rowCount} records`);
+
+      const records: StepTimeRecord[] = [];
+
+      while (resultSet.goToNextRow()) {
+        const id = resultSet.getLong(resultSet.getColumnIndex('id'));
+        const recordId = resultSet.getLong(resultSet.getColumnIndex('step_record_id'));
+        const time = resultSet.getString(resultSet.getColumnIndex('time'));
+        const steps = resultSet.getLong(resultSet.getColumnIndex('steps'));
+
+        hilog.debug(0x0000, TAG, `Found record: id=${id}, stepRecordId=${recordId}, time=${time}, steps=${steps}`);
+
+        const record = new StepTimeRecord(recordId, time, steps);
+        record.id = id;
+        records.push(record);
+      }
+
+      resultSet.close();
+      hilog.info(0x0000, TAG, `Retrieved ${records.length} step time records`);
+      return records;
+    } catch (error) {
+      hilog.error(0x0000, TAG, `Failed to query step time records: ${error}`);
+      return [];
+    }
+  }
+  async deleteStepTimeRecords(stepRecordId: number): Promise<boolean> {
+    if (!this.rdbStore) {
+      hilog.error(0x0000, TAG, 'RdbStore is not initialized');
+      return false;
+    }
+
+    try {
+      hilog.info(0x0000, TAG, `Deleting step time records for stepRecordId: ${stepRecordId}`);
+
+      // 验证表是否存在
+      try {
+        const checkTableSql = "SELECT name FROM sqlite_master WHERE type='table' AND name='step_time_record'";
+        const resultSet = await this.rdbStore.querySql(checkTableSql, []);
+        const tableExists = resultSet.rowCount > 0;
+        resultSet.close();
+
+        if (!tableExists) {
+          hilog.warn(0x0000, TAG, 'step_time_record table does not exist, nothing to delete');
+          return true; // 表不存在，视为删除成功
+        }
+      } catch (checkError) {
+        hilog.error(0x0000, TAG, `Error checking if table exists: ${checkError}`);
+      }
+
+      const predicates = new relationalStore.RdbPredicates('step_time_record');
+      predicates.equalTo('step_record_id', stepRecordId);
+
+      const deletedRows = await this.rdbStore.delete(predicates);
+      hilog.info(0x0000, TAG, `Deleted ${deletedRows} step time records`);
+      return true;
+    } catch (error) {
+      hilog.error(0x0000, TAG, `Failed to delete step time records: ${error}`);
+      return false;
+    }
+  }
+
+  // 在DatabaseHelper.ets中增强batchSaveStepRecords方法
+  async batchSaveStepRecords(userId: number, date: string, timeStepsArray: StepTimeInput[]): Promise<boolean> {
+    if (!this.rdbStore) {
+      hilog.error(0x0000, TAG, 'RdbStore is not initialized');
+      return false;
+    }
+
+    hilog.info(0x0000, TAG, `batchSaveStepRecords: Starting for user ${userId}, date ${date}, records: ${timeStepsArray.length}`);
+
+    try {
+      // 计算总步数
+      let totalSteps = 0;
+      for (const timeStep of timeStepsArray) {
+        totalSteps += timeStep.steps;
+        hilog.debug(0x0000, TAG, `Record: time=${timeStep.time}, steps=${timeStep.steps}`);
+      }
+      hilog.info(0x0000, TAG, `Total steps to save: ${totalSteps}`);
+
+      // 检查用户存在性
+      const user = await this.getUserById(userId);
+      if (!user) {
+        hilog.error(0x0000, TAG, `User with ID ${userId} not found`);
+        return false;
+      }
+
+      // 开始事务
+      hilog.info(0x0000, TAG, 'Starting database transaction');
+      await this.rdbStore.beginTransaction();
+
+      // 查询是否已有当日记录
+      hilog.info(0x0000, TAG, `Querying existing step records for date: ${date}`);
+      const stepRecords = await this.getStepRecords(userId, date);
+      hilog.info(0x0000, TAG, `Found ${stepRecords.length} existing records for the date`);
+
+      let stepRecordId: number;
+
+      if (stepRecords.length > 0) {
+        // 更新现有记录
+        const existingRecord = stepRecords[0];
+        hilog.info(0x0000, TAG, `Updating existing record with ID: ${existingRecord.id}, current steps: ${existingRecord.steps}, new steps: ${totalSteps}`);
+
+        existingRecord.steps = totalSteps;
+        const updated = await this.updateStepRecord(existingRecord);
+
+        if (!updated) {
+          hilog.error(0x0000, TAG, `Failed to update step record with ID: ${existingRecord.id}`);
+          await this.rdbStore.rollBack();
+          return false;
+        }
+
+        stepRecordId = Number(existingRecord.id);
+        hilog.info(0x0000, TAG, `Successfully updated step record, ID: ${stepRecordId}`);
+
+        // 删除现有的时间点记录
+        hilog.info(0x0000, TAG, `Deleting existing time records for step record ID: ${stepRecordId}`);
+        await this.deleteStepTimeRecords(stepRecordId);
+      } else {
+        // 创建新记录
+        hilog.info(0x0000, TAG, `Creating new step record for date: ${date}, steps: ${totalSteps}`);
+
+        // 使用valueBucket，确保数据类型正确
+        const valuesBucket: relationalStore.ValuesBucket = {
+          'user_id': userId,
+          'date': date,
+          'steps': totalSteps
+        };
+
+        const rowId = await this.rdbStore.insert('step_record', valuesBucket);
+
+        if (rowId < 0) {
+          hilog.error(0x0000, TAG, `Failed to insert main step record, rowId: ${rowId}`);
+          await this.rdbStore.rollBack();
+          return false;
+        }
+
+        stepRecordId = rowId;
+        hilog.info(0x0000, TAG, `Successfully inserted new step record, ID: ${stepRecordId}`);
+      }
+
+      // 插入时间点记录
+      hilog.info(0x0000, TAG, `Inserting ${timeStepsArray.length} step time records`);
+      let timeRecordsInserted = 0;
+
+      for (const timeStep of timeStepsArray) {
+        if (!timeStep.time || timeStep.steps <= 0) {
+          hilog.warn(0x0000, TAG, `Skipping invalid time record: time=${timeStep.time}, steps=${timeStep.steps}`);
+          continue; // 跳过无效记录
+        }
+
+        const timeRecord = new StepTimeRecord(stepRecordId, timeStep.time, timeStep.steps);
+
+        // 使用明确的valueBucket定义，确保数据类型正确
+        const timeValuesBucket: relationalStore.ValuesBucket = {
+          'step_record_id': stepRecordId,
+          'time': timeStep.time,
+          'steps': timeStep.steps
+        };
+
+        try {
+          const timeRowId = await this.rdbStore.insert('step_time_record', timeValuesBucket);
+
+          if (timeRowId < 0) {
+            hilog.error(0x0000, TAG, `Failed to insert step time record for time: ${timeStep.time}, rowId: ${timeRowId}`);
+            await this.rdbStore.rollBack();
+            return false;
+          }
+
+          timeRecordsInserted++;
+          hilog.debug(0x0000, TAG, `Inserted time record: time=${timeStep.time}, steps=${timeStep.steps}, rowId=${timeRowId}`);
+        } catch (insertError) {
+          hilog.error(0x0000, TAG, `Exception inserting time record: ${insertError}`);
+          await this.rdbStore.rollBack();
+          return false;
+        }
+      }
+
+      hilog.info(0x0000, TAG, `Successfully inserted ${timeRecordsInserted} time records`);
+
+      // 提交事务
+      hilog.info(0x0000, TAG, 'Committing transaction');
+      await this.rdbStore.commit();
+      hilog.info(0x0000, TAG, `Successfully saved batch step records. Total steps: ${totalSteps}`);
+      return true;
+    } catch (error) {
+      // 回滚事务
+      hilog.error(0x0000, TAG, `Exception in batch saving step records: ${error}`);
+      try {
+        if (this.rdbStore) {
+          hilog.info(0x0000, TAG, 'Rolling back transaction due to error');
+          await this.rdbStore.rollBack();
+        }
+      } catch (rollbackError) {
+        hilog.error(0x0000, TAG, `Error during rollback: ${rollbackError}`);
+      }
+      return false;
+    }
+  }
+
+  // 辅助方法：插入记录并返回ID
+  private async insertAndGetId(tableName: string, values: relationalStore.ValuesBucket): Promise<number> {
+    if (!this.rdbStore) {
+      return -1;
+    }
+
+    try {
+      const rowId = await this.rdbStore.insert(tableName, values);
+      return rowId;
+    } catch (error) {
+      hilog.error(0x0000, TAG, `grf_Failed to insert into ${tableName}: ${error}`);
+      return -1;
+    }
+  }
+  public async queryUserByUsername(username: string): Promise<User[]> {
+    if (!this.rdbStore) {
+      hilog.error(0x0000, TAG, 'grf_RdbStore is not initialized');
       return [];
     }
 
@@ -224,7 +584,6 @@ export class DatabaseHelper {
     if (!this.rdbStore) {
       return [];
     }
-
     try {
       const predicates = new relationalStore.RdbPredicates('step_record');
       predicates.equalTo('user_id', userId);
@@ -241,7 +600,7 @@ export class DatabaseHelper {
         const date = resultSet.getString(resultSet.getColumnIndex('date'));
         const steps = resultSet.getLong(resultSet.getColumnIndex('steps'));
 
-        records.push(new StepRecord(userId, date, steps, id));
+        records.push(new StepRecord(userId, date, steps, id.toString()));
       }
 
       resultSet.close();
