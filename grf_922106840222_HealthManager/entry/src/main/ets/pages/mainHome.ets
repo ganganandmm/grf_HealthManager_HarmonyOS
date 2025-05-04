@@ -6,33 +6,80 @@ import { DatabaseHelper } from '../common/DatabaseHelper';
 import { StepRecord, HeartRateRecord, SleepRecord, WaterRecord, StepTimeRecord } from '../common/HealthDataModel';
 import Want from '@ohos.app.ability.Want'
 import promptAction from '@ohos.promptAction';
-import {HeartRateInputDialog, StepInputDialog, WaterInputDialog} from './Dialog'
-import {HealthDataCard,HeartRateRecordItem,WaterRecordItem,DataInputRow,StepTimeRecordItem} from './myComponents'
+import { HeartRateInputDialog, StepInputDialog, WaterInputDialog } from './Dialog'
+import { HealthDataCard, HeartRateRecordItem, WaterRecordItem, DataInputRow, StepTimeRecordItem } from './myComponents'
+import {
+  ChartDataItem,
+  HealthData,
+  MetadataParams,
+  RouteParams,
+  RouterParams,
+  StepTimeInput
+} from './mainhomeInterface';
+import NotificationManager from '@ohos.notificationManager';
+import notification from '@ohos.notification';
+import { notificationManager } from '@kit.NotificationKit';
+import { BusinessError } from '@kit.BasicServicesKit';
+
 
 export const TAG: string = 'mainHome';
-@Extend(Text) function titleText() {
+const DOMAIN_NUMBER: number = 0xFF00;
+
+
+interface GeneratedObjectLiteralInterface_3 {
+  title: string;
+  text: string;
+  additionalText: string;
+}
+
+let notificationRequest: notificationManager.NotificationRequest = {
+  id: 1,
+  content: {
+    notificationContentType: notificationManager.ContentType.NOTIFICATION_CONTENT_BASIC_TEXT, // 普通文本类型通知
+    normal: ({
+      title: 'test_title',
+      text: 'test_text',
+      additionalText: 'test_additionalText',
+    } as GeneratedObjectLiteralInterface_3)
+  }
+};
+notificationManager.publish(notificationRequest, (err: BusinessError) => {
+  if (err) {
+    hilog.error(DOMAIN_NUMBER, TAG, `Failed to publish notification. Code is ${err.code}, message is ${err.message}`);
+    return;
+  }
+  hilog.info(DOMAIN_NUMBER, TAG, 'Succeeded in publishing notification.');
+});
+
+
+@Extend(Text)
+function titleText() {
   .fontSize(20)
   .fontWeight(FontWeight.Bold)
   .margin({ top: 10, bottom: 20 })
 }
 
-@Extend(Text) function subtitleText() {
+@Extend(Text)
+function subtitleText() {
   .fontSize(18)
   .fontWeight(FontWeight.Bold)
   .margin({ bottom: 10 })
 }
 
-@Extend(Text) function labelText() {
+@Extend(Text)
+function labelText() {
   .fontSize(16)
   .fontColor('#666')
 }
 
-@Extend(Text) function valueText() {
+@Extend(Text)
+function valueText() {
   .fontSize(24)
   .fontWeight(FontWeight.Bold)
 }
 
-@Extend(Column) function cardContainer() {
+@Extend(Column)
+function cardContainer() {
   .width('90%')
   .padding(15)
   .borderRadius(8)
@@ -40,21 +87,24 @@ export const TAG: string = 'mainHome';
   .margin({ bottom: 10 })
 }
 
-@Extend(Button) function primaryButton() {
+@Extend(Button)
+function primaryButton() {
   .width('100%')
   .height(40)
   .backgroundColor('#27AE60')
   .margin({ bottom: 10 })
 }
 
-@Extend(Button) function secondaryButton(bgColor: string = '#3498DB') {
+@Extend(Button)
+function secondaryButton(bgColor: string = '#3498DB') {
   .width('100%')
   .height(40)
   .backgroundColor(bgColor)
   .margin({ bottom: 10 })
 }
 
-@Extend(Row) function menuItem() {
+@Extend(Row)
+function menuItem() {
   .width('100%')
   .padding(15)
   .backgroundColor('#ffffff')
@@ -62,50 +112,12 @@ export const TAG: string = 'mainHome';
   .margin({ bottom: 10 })
 }
 
-// 定义接口
-interface RouteParams {
-  username?: string;
-  userId?: number;
-  newLogin?: boolean;
-}
-
-interface HealthData {
-  userId: number;
-  username: string;
-  date: string;
-  steps: number;
-  heartRate: number;
-  sleepHours: number;
-  waterAmount: number;
-}
-
-interface RouterParams {
-  username: string;
-  userId: string;
-  steps: string;
-  heartRate: string;
-  sleepHours: string;
-  waterAmount: string;
-  date: string;
-}
-
-interface MetadataParams {
-  healthData?: string;
-}
-
-interface ChartDataItem {
-  label: string;
-  value: number;
-}
-
-interface StepTimeInput {
-  time: string;
-  steps: number;
-}
-
 @Entry
 @Component
 struct MainHome {
+  private context = getContext(this) as common.UIAbilityContext;
+  private hasNotified: boolean = false; // 用于记录是否已经发送过通知
+  @State lastNotifiedSteps: number = 0; // 用于记录上次通知时的步数
   @State username: string = '';
   @State userId: number = -1;
   @State steps: number = 0;
@@ -120,17 +132,15 @@ struct MainHome {
   @State lastUpdateTime: number = 0; // Track the last update time
   @State tempWaterAmount: number = 0; // Temporary variable for water input
   private dbHelper: DatabaseHelper = new DatabaseHelper(getContext(this));
-  private context = getContext(this) as common.UIAbilityContext;
   private refreshInterval: number = 0; // For periodic refresh
-  @State heartRateRecords: HeartRateRecord[] = [];//心率记录
+  @State heartRateRecords: HeartRateRecord[] = []; //心率记录
   @State heartRateInputTimes: string[] = ['08:00']; // 默认添加一个时间
   @State heartRateInputValues: string[] = ['0']; // 默认添加一个心率值
   @State waterInputTimes: string[] = ['08:00']; // 默认添加一个时间
   @State waterInputValues: string[] = ['0']; // 默认添加一个饮水量值
-  @State myWeight: number =  0;//体重
-  @State myHeight:number = 0;// 身高
-  @State bmi:number = 0;
-  // 新增状态变量用于步数图表
+  @State myWeight: number = 0; //体重
+  @State myHeight: number = 0; // 身高
+  @State bmi: number = 0;
   @State stepChartData: ChartDataItem[] = [];
   @State chartMode: string = '日'; // '日', '周', '月'
   @State dateRangeText: string = '';
@@ -140,10 +150,16 @@ struct MainHome {
   @State canvasContext: CanvasRenderingContext2D | null = null;
   @State selectedDate: Date = new Date();
   @State isCalendarVisible: boolean = false;
-
+  @State isChartScrolling: boolean = false;
+  @State isDateScrolling: boolean = false;
+  @State currentOffset: number = 0;
+  @State notificationSent: boolean = false; // 标记是否已发送通知
   @State stepInputTimes: string[] = ['08:00'];
   @State stepInputValues: string[] = ['0'];
   @State stepTimeRecords: StepTimeRecord[] = [];
+  @State message: string = '通知示例';
+
+
   heartRateDialogController: CustomDialogController = new CustomDialogController({
     builder: HeartRateInputDialog({
       heartRateInputTimes: this.heartRateInputTimes,
@@ -156,7 +172,6 @@ struct MainHome {
     alignment: DialogAlignment.Center,
     customStyle: true
   });
-
   waterDialogController: CustomDialogController = new CustomDialogController({
     builder: WaterInputDialog({
       waterInputTimes: this.waterInputTimes,
@@ -182,6 +197,108 @@ struct MainHome {
     customStyle: true
   });
 
+  private async checkNotificationPermission(): Promise<void> {
+    try {
+      hilog.info(DOMAIN_NUMBER, TAG, '正在检查通知权限...');
+
+      // 获取通知权限状态
+      const isNotificationEnabled = await notificationManager.isNotificationEnabled();
+      hilog.info(DOMAIN_NUMBER, TAG, `通知权限状态: ${isNotificationEnabled}`);
+
+      if (!isNotificationEnabled) {
+        hilog.warn(DOMAIN_NUMBER, TAG, '通知权限未启用，请确保在设置中启用通知权限');
+        // 提示用户去设置页面开启权限
+        promptAction.showToast({
+          message: '请在设置中开启通知权限以接收健康提醒'
+        });
+      } else {
+        hilog.info(DOMAIN_NUMBER, TAG, '通知权限已启用');
+        // 发送测试通知以验证通知功能
+        this.sendTestNotification();
+      }
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      hilog.error(DOMAIN_NUMBER, TAG, `权限检查失败: ${errMsg}`);
+    }
+  }
+
+  private sendTestNotification(): void {
+    try {
+      // 创建通知内容
+      let notificationRequest: notificationManager.NotificationRequest = {
+        id: 0,
+        content: {
+          notificationContentType: notificationManager.ContentType.NOTIFICATION_CONTENT_BASIC_TEXT,
+          normal: {
+            title: '健康管理系统',
+            text: '通知功能已启用',
+            additionalText: '您将收到健康相关提醒'
+          }
+        }
+      };
+
+      notificationManager.publish(notificationRequest, (err: BusinessError) => {
+        if (err) {
+          hilog.error(DOMAIN_NUMBER, TAG, `测试通知发送失败. 错误码: ${err.code}, 错误信息: ${err.message}`);
+          return;
+        }
+        hilog.info(DOMAIN_NUMBER, TAG, '测试通知发送成功');
+      });
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      hilog.error(DOMAIN_NUMBER, TAG, `发送测试通知失败: ${errMsg}`);
+    }
+  }
+
+
+  private checkStepsAndNotify(steps: number): void {
+    hilog.info(DOMAIN_NUMBER, TAG, `检查步数通知条件: 当前步数=${steps}, 上次通知步数=${this.lastNotifiedSteps}`);
+
+    if (steps >= 8000 && steps !== this.lastNotifiedSteps) {
+      hilog.info(DOMAIN_NUMBER, TAG, `步数已达到通知条件: ${steps}步 >= 8000步`);
+
+      try {
+        let notificationRequest: notificationManager.NotificationRequest = {
+          id: 1,
+          content: {
+            notificationContentType: notificationManager.ContentType.NOTIFICATION_CONTENT_BASIC_TEXT,
+            normal: {
+              title: '健康步数提醒',
+              text: `恭喜! 您今日的步数为${steps}步，已超过8000步目标！`,
+              additionalText: '继续保持健康生活方式!'
+            }
+          },
+          isOngoing: false
+        };
+
+        // 使用单一API发送通知
+        notificationManager.publish(notificationRequest, (err) => {
+          if (err) {
+            hilog.error(DOMAIN_NUMBER, TAG, `发送步数通知失败. 错误码: ${err.code}, 错误信息: ${err.message}`);
+            return;
+          }
+          hilog.info(DOMAIN_NUMBER, TAG, `成功发送步数通知：当前步数 ${steps}`);
+
+          // 更新最后通知的步数
+          this.lastNotifiedSteps = steps;
+
+          // 提示用户检查通知栏
+          promptAction.showToast({
+            message: '已发送步数达标通知，请检查通知栏'
+          });
+        });
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        hilog.error(DOMAIN_NUMBER, TAG, `步数通知处理异常: ${errMsg}`);
+      }
+    } else {
+      if (steps < 8000) {
+        hilog.info(DOMAIN_NUMBER, TAG, `步数未达到通知条件: ${steps}步 < 8000步`);
+      } else if (steps === this.lastNotifiedSteps) {
+        hilog.info(DOMAIN_NUMBER, TAG, `已经为当前步数(${steps})发送过通知，不重复发送`);
+      }
+    }
+  }
   aboutToAppear() {
     const params = router.getParams() as RouteParams;
     if (params) {
@@ -194,10 +311,21 @@ struct MainHome {
       if (params.newLogin) {
         this.isNewLogin = true;
         hilog.info(0x0000, TAG, 'New login detected, refreshing data');
+        // 在新登录时重置上次通知的步数，确保用户登录后能收到新通知
+        this.lastNotifiedSteps = 0;
       }
     }
-    this.initData();
+
+    // 设置当前日期
+    this.currentDate = new Date().toISOString().split('T')[0];
+    // 初始化数据后再检查通知权限
+    this.initData().then(() => {
+      // 加载完数据后再检查通知权限
+      this.checkNotificationPermission();
+    });
+
     this.checkReceivedData();
+
     this.refreshInterval = setInterval(() => {
       this.refreshData();
     }, 30000);
@@ -210,7 +338,7 @@ struct MainHome {
     this.dbHelper.closeDatabase();
     this.heartRateDialogController.close();
     this.waterDialogController.close();
-    this.stepDialogController.close(); // Add this line
+    this.stepDialogController.close();
   }
 
   async initData() {
@@ -283,8 +411,29 @@ struct MainHome {
       const stepRecords = await this.dbHelper.getStepRecords(this.userId, this.currentDate);
       if (stepRecords.length > 0) {
         this.steps = stepRecords[0].steps;
+
+        // 获取今日所有步数时间点记录
+        if (stepRecords[0].id) {
+          this.stepTimeRecords = await this.dbHelper.getStepTimeRecords(Number(stepRecords[0].id));
+
+          // 计算今日步数总和
+          this.totalSteps = this.stepTimeRecords.reduce((sum, record) => sum + record.steps, 0);
+          this.checkStepsAndNotify(this.totalSteps);
+          // 如果没有时间点记录，则使用主记录的步数
+          if (this.stepTimeRecords.length === 0) {
+            this.totalSteps = this.steps;
+          }
+        } else {
+          this.stepTimeRecords = [];
+          this.totalSteps = this.steps;
+        }
+
+        // 检查步数是否达到8000并发送通知
+        this.checkStepsAndNotify(this.totalSteps);
       } else {
         this.steps = 0;
+        this.stepTimeRecords = [];
+        this.totalSteps = 0;
       }
 
       const heartRateRecords = await this.dbHelper.getHeartRateRecords(this.userId, this.currentDate);
@@ -309,13 +458,11 @@ struct MainHome {
       this.lastUpdateTime = Date.now();
       hilog.info(0x0000, TAG, 'Health data loaded successfully');
 
-
     } catch (error) {
       const errorMessage: string = error instanceof Error ? error.message : String(error);
       hilog.error(0x0000, TAG, `Failed to load health data: ${errorMessage}`);
     }
   }
-
   async updateStepChartData() {
     try {
       let data: ChartDataItem[] = [];
@@ -326,26 +473,56 @@ struct MainHome {
 
       switch (this.chartMode) {
         case '日':
+          // 使用步数时间记录计算今日总步数
+          total = this.totalSteps; // 使用已计算好的今日总步数
+
+          // 使用时间段分布数据
           const timeSlots = ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00'];
 
-          const dayStepRecords = await this.dbHelper.getStepRecords(this.userId, this.currentDate);
-          let dayTotalSteps = dayStepRecords.length > 0 ? dayStepRecords[0].steps : 0;
-          total = dayTotalSteps;
+          if (this.stepTimeRecords.length > 0) {
+            const slotData: number[] = new Array(timeSlots.length).fill(0);
 
-          const hourlyDistribution = [0.05, 0.05, 0.15, 0.30, 0.35, 0.10]; // Distribution percentages
+            for (const record of this.stepTimeRecords) {
+              const recordHour = parseInt(record.time.split(':')[0]);
+              let slotIndex = 0;
 
-          for (let i = 0; i < timeSlots.length; i++) {
-            const slotSteps = Math.round(dayTotalSteps * hourlyDistribution[i]);
-            data.push({
-              label: timeSlots[i],
-              value: slotSteps
-            });
+              // 确定记录属于哪个时间段
+              for (let i = 1; i < timeSlots.length; i++) {
+                const slotHour = parseInt(timeSlots[i].split(':')[0]);
+                if (recordHour < slotHour) {
+                  break;
+                }
+                slotIndex = i;
+              }
+
+              slotData[slotIndex] += record.steps;
+            }
+
+            // 创建图表数据
+            for (let i = 0; i < timeSlots.length; i++) {
+              data.push({
+                label: timeSlots[i],
+                value: slotData[i]
+              });
+            }
+          } else {
+            // 如果没有详细时间记录，使用默认分布
+            const hourlyDistribution = [0.05, 0.05, 0.15, 0.30, 0.35, 0.10]; // 分布百分比
+
+            for (let i = 0; i < timeSlots.length; i++) {
+              const slotSteps = Math.round(total * hourlyDistribution[i]);
+              data.push({
+                label: timeSlots[i],
+                value: slotSteps
+              });
+            }
           }
 
-          this.maxDisplayValue = Math.max(15000, dayTotalSteps * 0.4);
+          this.maxDisplayValue = Math.max(15000, total * 0.4);
           dateDisplay = this.currentDate;
-          this.avgDailySteps = dayTotalSteps;
+          this.avgDailySteps = total;
           break;
+
 
         case '周':
           const today = new Date(this.currentDate);
@@ -371,7 +548,9 @@ struct MainHome {
             });
 
             weekTotal += daySteps;
-            if (daySteps > 0) dayCount++;
+            if (daySteps > 0) {
+              dayCount++;
+            }
           }
 
           total = weekTotal;
@@ -379,7 +558,8 @@ struct MainHome {
 
           const endOfWeek = new Date(mondayOfWeek);
           endOfWeek.setDate(mondayOfWeek.getDate() + 6);
-          dateDisplay = `${mondayOfWeek.getFullYear()}年${mondayOfWeek.getMonth() + 1}月${mondayOfWeek.getDate()}日至${endOfWeek.getDate()}日`;
+          dateDisplay = `${mondayOfWeek.getFullYear()}年${mondayOfWeek.getMonth() +
+            1}月${mondayOfWeek.getDate()}日至${endOfWeek.getDate()}日`;
           this.avgDailySteps = dayCount > 0 ? Math.round(weekTotal / dayCount) : 0;
           break;
 
@@ -408,7 +588,9 @@ struct MainHome {
             });
 
             monthTotal += daySteps;
-            if (daySteps > 0) activeDays++;
+            if (daySteps > 0) {
+              activeDays++;
+            }
           }
 
           total = monthTotal;
@@ -564,6 +746,7 @@ struct MainHome {
       this.waterInputValues.splice(index, 1);
     }
   }
+
   addStepInputRow() {
     this.stepInputTimes.push('08:00');
     this.stepInputValues.push('0');
@@ -575,7 +758,6 @@ struct MainHome {
       this.stepInputValues.splice(index, 1);
     }
   }
-
 
   async saveMultiHeartRates() {
     if (this.userId <= 0) {
@@ -721,7 +903,10 @@ struct MainHome {
 
           // 刷新数据
           hilog.info(0x0000, TAG, 'Refreshing data after saving');
+          this.checkStepsAndNotify(totalSteps);
           await this.refreshData();
+          this.checkStepsAndNotify(totalSteps);
+
         } else {
           hilog.error(0x0000, TAG, 'batchSaveStepRecords returned false');
           promptAction.showToast({ message: '保存步数记录失败' });
@@ -777,7 +962,7 @@ struct MainHome {
               Row() {
                 HealthDataCard({
                   title: '步数',
-                  value: this.steps.toString(),
+                  value: this.totalSteps.toString(),
                   color: '#1698CE'
                 })
 
@@ -914,7 +1099,7 @@ struct MainHome {
             return { offsetRemain: offset };
           })
         }
-        .tabBar({ text: '首页'})
+        .tabBar({ text: '首页' })
 
         // 数据输入页面
         TabContent() {
@@ -929,7 +1114,7 @@ struct MainHome {
                     .subtitleText()
                     .alignSelf(ItemAlign.Start)
 
-                  Row(){
+                  Row() {
                     TextInput({ text: this.steps.toString() })
                       .type(InputType.Number)
                       .width('60%')
@@ -943,7 +1128,7 @@ struct MainHome {
                       .width('40%')
                       .height(50)
                       .backgroundColor('#1698CE')
-                      .margin({ bottom: 10, left:'5%'})
+                      .margin({ bottom: 10, left: '5%' })
                       .onClick(async () => {
                         if (this.userId > 0) {
                           try {
@@ -977,6 +1162,7 @@ struct MainHome {
                         } else {
                           promptAction.showToast({ message: '用户ID无效' });
                         }
+                        this.checkStepsAndNotify(this.totalSteps)
                       })
                   }
 
@@ -990,6 +1176,7 @@ struct MainHome {
                       this.stepInputTimes = ['08:00'];
                       this.stepInputValues = ['0'];
                       this.stepDialogController.open();
+                      this.checkStepsAndNotify(this.totalSteps)
                     })
                 }
                 .cardContainer()
@@ -1064,8 +1251,12 @@ struct MainHome {
                     buttonColor: '#9B59B6',
                     onInputChange: (value: string) => {
                       let sleepValue = parseFloat(value) || 0;
-                      if (sleepValue < 0) sleepValue = 0;
-                      if (sleepValue > 24) sleepValue = 24;
+                      if (sleepValue < 0) {
+                        sleepValue = 0;
+                      }
+                      if (sleepValue > 24) {
+                        sleepValue = 24;
+                      }
                       this.sleepHours = sleepValue;
                     },
                     onButtonClick: async () => {
@@ -1184,7 +1375,6 @@ struct MainHome {
                 .cardContainer()
                 .margin({ bottom: 20 })
 
-                // 数据刷新按钮
                 Column() {
                   Button('刷新所有数据')
                     .primaryButton()
@@ -1210,347 +1400,336 @@ struct MainHome {
         }
         .tabBar({ text: '数据输入' })
 
-        //运动界面
         TabContent() {
           Scroll() {
+            Column() {
+              Row() {
+                Text('步数')
+                  .titleText()
+                  .layoutWeight(1)
+                  .textAlign(TextAlign.Center)
+              }
+
+              Row() {
+                Text(this.dateRangeText)
+                  .labelText()
+                  .textAlign(TextAlign.Center)
+              }
+              .justifyContent(FlexAlign.Center)
+              .width('100%')
+
+
+              Divider();
+
+              // 图表模式切换
+              Row() {
+                ForEach(['日', '周', '月'], (mode: string) => {
+                  Text(mode)
+                    .fontSize(16)
+                    .fontWeight(this.chartMode === mode ? FontWeight.Bold : FontWeight.Normal)
+                    .fontColor(this.chartMode === mode ? '#000' : '#666')
+                    .backgroundColor(this.chartMode === mode ? '#fff' : '#f5f5f5')
+                    .padding({
+                      left: 20,
+                      right: 20,
+                      top: 8,
+                      bottom: 8
+                    })
+                    .borderRadius(20)
+                    .onClick(() => {
+                      this.chartMode = mode;
+                      this.updateStepChartData();
+                    })
+                })
+              }
+              .width('100%')
+              .margin({ top: '10%' })
+              .justifyContent(FlexAlign.SpaceEvenly)
+              .margin({ bottom: 20 })
+
+              // 步数显示
               Column() {
                 Row() {
-                  Text('步数')
-                    .titleText()
-                    .layoutWeight(1)
-                    .textAlign(TextAlign.Center)
+                  Text(this.totalSteps.toString())
+                    .valueText()
+                  Text('步')
+                    .fontSize(20)
+                    .margin({ left: 5 })
                 }
-                Row() {
-                  Text(this.dateRangeText)
-                    .labelText()
-                    .textAlign(TextAlign.Center)
-                }
-                .justifyContent(FlexAlign.Center)
-                .width('100%')
 
+                Text(this.dateRangeText)
+                  .fontSize(14)
+                  .fontColor('#666')
+                  .margin({ top: 5 })
+              }
+              .width('100%')
+              .alignItems(HorizontalAlign.Start)
+              .margin({ bottom: 20 })
 
-                Divider();
+              // 合并柱状图和日期为一个列表
+              Column() {
+                // Y轴标签和网格线
+                Stack() {
+                  // Y轴刻度 - 动态调整以适应数据
+                  Column() {
+                    ForEach([1, 0.8, 0.6, 0.4, 0.2, 0], (ratio: number) => {
+                      Row() {
+                        Text(Math.round(this.maxDisplayValue * ratio).toString())
+                          .fontSize(12)
+                          .fontColor('#999')
+                          .width(50)
+                          .textAlign(TextAlign.End)
+                          .margin({ right: 10 })
 
-                // 图表模式切换
-                Row() {
-                  ForEach(['日', '周', '月'], (mode: string) => {
-                    Text(mode)
-                      .fontSize(16)
-                      .fontWeight(this.chartMode === mode ? FontWeight.Bold : FontWeight.Normal)
-                      .fontColor(this.chartMode === mode ? '#000' : '#666')
-                      .backgroundColor(this.chartMode === mode ? '#fff' : '#f5f5f5')
-                      .padding({ left: 20, right: 20, top: 8, bottom: 8 })
-                      .borderRadius(20)
-                      .onClick(() => {
-                        this.chartMode = mode;
-                        this.updateStepChartData();
-                      })
-                  })
-                }
-                .width('100%')
-                .margin({top : '10%'})
-                .justifyContent(FlexAlign.SpaceEvenly)
-                .margin({ bottom: 20 })
-
-                // 步数显示
-                Column() {
-                  Row() {
-                    Text(this.totalSteps.toString())
-                      .valueText()
-                    Text('步')
-                      .fontSize(20)
-                      .margin({ left: 5 })
-                  }
-
-                  Text(this.dateRangeText)
-                    .fontSize(14)
-                    .fontColor('#666')
-                    .margin({ top: 5 })
-                }
-                .width('100%')
-                .alignItems(HorizontalAlign.Start)
-                .margin({ bottom: 20 })
-
-                // 柱状图组件 - 修复柱状图覆盖日期的问题
-                Column() {
-                  // Y轴标签和网格线
-                  Stack() {
-                    // Y轴刻度 - 动态调整以适应数据
-                    Column() {
-                      ForEach([1, 0.8, 0.6, 0.4, 0.2, 0], (ratio: number) => {
-                        Row() {
-                          Text(Math.round(this.maxDisplayValue * ratio).toString())
-                            .fontSize(12)
-                            .fontColor('#999')
-                            .width(50)
-                            .textAlign(TextAlign.End)
-                            .margin({ right: 10 })
-
-                          // 网格线
-                          Divider()
-                            .width('100%')
-                            .color('#eee')
-                        }
-                        .width('100%')
-                        .height(25)
-                      })
-                    }
-                    .height(150)
-                    .width('100%')
-                    .alignItems(HorizontalAlign.Start)
-
-                    Column() {
-                      List({ space: 0 }) {
-                        ForEach(this.stepChartData, (item: ChartDataItem) => {
-                          ListItem() {
-                            Column() {
-                              // 柱子部分 - 确保柱子位于上方，不会延伸到下方标签区域
-                              Column() {
-                                if (item.value > 0) {
-                                  Column()
-                                    .width(this.chartMode === '月' ? 20 : 40)
-                                    .height(this.calculateBarHeight(item.value))
-                                    .backgroundColor('#FFD700')
-                                    .borderRadius(this.chartMode === '月' ? 3 : 5)
-                                }
-                              }
-                              .height(130)
-                              .width('100%')
-                              .justifyContent(FlexAlign.End)
-                            }
-                            .alignItems(HorizontalAlign.Center)
-                          }
-                          .width(this.chartMode === '月' ? 40 : 60)
-                        })
-                      }
-                      .listDirection(Axis.Horizontal) // 水平列表
-                      .scrollBar(BarState.Auto) // 显示滚动条
-                      .scrollBarColor(Color.Gray)
-                      .scrollBarWidth(2)
-                      .edgeEffect(EdgeEffect.Spring) // 滚动到边缘时的弹性效果
-                      .width('100%')
-                      .height(130) // 减小高度，与柱子容器一致
-                    }
-                    .width('100%')
-                    .height(150)
-                    .margin({ left: 60 })
-                  }
-
-                  // 将日期标签单独放在下方，确保不被柱状图覆盖
-                  List() {
-                    ForEach(this.stepChartData, (item: ChartDataItem) => {
-                      ListItem() {
-                        Text(item.label)
-                          .fontSize(14)
-                          .fontColor('#333')
-                          .textAlign(TextAlign.Center)
+                        // 网格线
+                        Divider()
                           .width('100%')
-                          .padding({ top: 5, bottom: 5 })
+                          .color('#eee')
                       }
-                      .width(this.chartMode === '月' ? 40 : 60)
+                      .width('100%')
+                      .height(25)
                     })
                   }
-                  .listDirection(Axis.Horizontal)
-                  .scrollBar(BarState.Off) // 隐藏日期部分的滚动条
+                  .height(150)
                   .width('100%')
-                  .height(30)
-                  .margin({ left: 60 }) // 与上方柱状图对齐
-                  .onScrollIndex((firstIndex: number) => {
-                    // 同步两个List的滚动位置
-                    // 注意：需要添加引用以实现此功能
-                  //this.chartListController.scrollTo({ index: firstIndex });
-                  })
+                  .alignItems(HorizontalAlign.Start)
 
-                  // 分隔线，明确分隔图表和日期区域
-                  Divider()
-                    .width('90%')
-                    .strokeWidth(1)
-                    .color('#ddd')
-                    .margin({ top: 5 })
+                  Column() {
+                    List() {
+                      ForEach(this.stepChartData, (item: ChartDataItem) => {
+                        ListItem() {
+                          Column() {
+                            // 柱子部分
+                            Column() {
+                              if (item.value > 0) {
+                                Column()
+                                  .width(this.chartMode === '月' ? 20 : 40)
+                                  .height(this.calculateBarHeight(item.value))
+                                  .backgroundColor('#FFD700')
+                                  .borderRadius(this.chartMode === '月' ? 3 : 5)
+                              }
+                            }
+                            .height(130)
+                            .width('100%')
+                            .justifyContent(FlexAlign.End)
 
-                  // 图表说明
-                  Text('← 左右滑动查看更多数据 →')
-                    .fontSize(12)
-                    .fontColor('#666')
-                    .textAlign(TextAlign.Center)
+                            // 日期标签直接放在柱子下方
+                            Text(item.label)
+                              .fontSize(14)
+                              .fontColor('#333')
+                              .textAlign(TextAlign.Center)
+                              .width('100%')
+                              .padding({ top: 5, bottom: 5 })
+                          }
+                          .alignItems(HorizontalAlign.Center)
+                        }
+                        .width(this.chartMode === '月' ? 40 : 60)
+                      })
+                    }
+                    .listDirection(Axis.Horizontal)
+                    .scrollBar(BarState.Auto)
+                    .scrollBarColor(Color.Gray)
+                    .scrollBarWidth(2)
+                    .edgeEffect(EdgeEffect.Spring)
                     .width('100%')
+                    .height(170) // 增加高度以容纳日期标签
+                  }
+                  .width('100%')
+                  .height(170)
+                  .margin({ left: 60 })
+                }
+
+                // 分隔线
+                Divider()
+                  .width('90%')
+                  .strokeWidth(1)
+                  .color('#ddd')
+                  .margin({ top: 5 })
+
+                // 图表说明
+                Text('← 左右滑动查看更多数据 →')
+                  .fontSize(12)
+                  .fontColor('#666')
+                  .textAlign(TextAlign.Center)
+                  .width('100%')
+                  .margin({ top: 5 })
+              }
+              .width('100%')
+              .margin({ bottom: 20 })
+
+              // 概览部分
+              Row() {
+                Image($r('app.media.target'))
+                  .width(24)
+                  .height(24)
+                  .margin({ right: 10 })
+
+                Text('本周概览')
+                  .subtitleText()
+              }
+              .width('100%')
+              .margin({ bottom: 10 })
+
+              Row() {
+                Column() {
+                  Text(this.totalSteps.toString())
+                    .valueText()
+                  Text('总步数')
+                    .labelText()
                     .margin({ top: 5 })
                 }
-                .width('100%')
-                .margin({ bottom: 20 })
+                .layoutWeight(1)
 
-                // 概览部分
+                Column() {
+                  Text((this.totalSteps / 3 / 1000).toFixed(2))
+                    .valueText()
+                  Text('总距离(公里)')
+                    .labelText()
+                    .margin({ top: 5 })
+                }
+                .layoutWeight(1)
+              }
+              .width('100%')
+              .margin({ bottom: 20 })
+
+              Row() {
+                Column() {
+                  Text(this.avgDailySteps.toString())
+                    .valueText()
+                  Text('日均步数')
+                    .labelText()
+                    .margin({ top: 5 })
+                }
+                .layoutWeight(1)
+
+                Column() {
+                  // 使用正确的换算: 三步=一米，再转换为公里
+                  Text((this.avgDailySteps / 3 / 1000).toFixed(2))
+                    .valueText()
+                  Text('日均距离(公里)')
+                    .labelText()
+                    .margin({ top: 5 })
+                }
+                .layoutWeight(1)
+              }
+              .width('100%')
+
+
+              Column() {
                 Row() {
                   Image($r('app.media.target'))
                     .width(24)
                     .height(24)
                     .margin({ right: 10 })
 
-                  Text('本周概览')
+                  Text('今日步数详细记录')
                     .subtitleText()
                 }
                 .width('100%')
                 .margin({ bottom: 10 })
 
-                Row() {
-                  Column() {
-                    Text(this.totalSteps.toString())
-                      .valueText()
-                    Text('总步数')
-                      .labelText()
-                      .margin({ top: 5 })
-                  }
-                  .layoutWeight(1)
-
-                  Column() {
-                    Text((this.totalSteps / 3 / 1000).toFixed(2))
-                      .valueText()
-                    Text('总距离(公里)')
-                      .labelText()
-                      .margin({ top: 5 })
-                  }
-                  .layoutWeight(1)
-                }
-                .width('100%')
-                .margin({ bottom: 20 })
-
-                Row() {
-                  Column() {
-                    Text(this.avgDailySteps.toString())
-                      .valueText()
-                    Text('日均步数')
-                      .labelText()
-                      .margin({ top: 5 })
-                  }
-                  .layoutWeight(1)
-
-                  Column() {
-                    // 使用正确的换算: 三步=一米，再转换为公里
-                    Text((this.avgDailySteps / 3 / 1000).toFixed(2))
-                      .valueText()
-                    Text('日均距离(公里)')
-                      .labelText()
-                      .margin({ top: 5 })
-                  }
-                  .layoutWeight(1)
-                }
-                .width('100%')
-
-                // 在运动选项卡中找到"今日步数详细记录"区域，修改为：
-                Column() {
-                  Row() {
-                    Image($r('app.media.target'))
-                      .width(24)
-                      .height(24)
-                      .margin({ right: 10 })
-
-                    Text('今日步数详细记录')
-                      .subtitleText()
+                if (this.stepTimeRecords.length > 0) {
+                  List() {
+                    ForEach(this.stepTimeRecords, (item: StepTimeRecord) => {
+                      ListItem() {
+                        StepTimeRecordItem({ record: item })
+                      }
+                    })
                   }
                   .width('100%')
-                  .margin({ bottom: 10 })
-
-                  if (this.stepTimeRecords.length > 0) {
-                    List() {
-                      ForEach(this.stepTimeRecords, (item: StepTimeRecord) => {
-                        ListItem() {
-                          StepTimeRecordItem({ record: item })
-                        }
-                      })
-                    }
-                    .width('100%')
-                    .height(this.stepTimeRecords.length > 3 ? 200 : undefined)
-                    .divider({ strokeWidth: 1, color: '#eeeeee' })
-                  } else {
-                    Text('暂无详细步数记录')
-                      .fontSize(14)
-                      .fontColor('#999')
-                      .padding(10)
-                  }
+                  .height(this.stepTimeRecords.length > 3 ? 200 : undefined)
+                  .divider({ strokeWidth: 1, color: '#eeeeee' })
+                } else {
+                  Text('暂无详细步数记录')
+                    .fontSize(14)
+                    .fontColor('#999')
+                    .padding(10)
                 }
-                .width('100%')
-                .padding(15)
-                .borderRadius(8)
-                .backgroundColor('#f5f5f5')
-                .margin({ top: 10, bottom: 20 })
-
-                // 添加批量输入步数按钮
-                Button('批量输入步数')
-                  .width('90%')
-                  .height(40)
-                  .backgroundColor('#1698CE')
-                  .margin({ top: 10, bottom: 20 })
-                  .onClick(() => {
-                    this.stepInputTimes = ['08:00'];
-                    this.stepInputValues = ['0'];
-                    this.stepDialogController.open();
-                  })
-                // 分割线
-                Divider()
-                  .width('90%')
-                  .height(1)
-                  .backgroundColor('#ddd')
-                  .margin({ top: 10, bottom: 10 })
-
-                // 身体成分分析部分
-                Row() {
-                  Image($r('app.media.bmi'))
-                    .width(24)
-                    .height(24)
-                    .margin({ right: 10 })
-
-                  Text('身体成分分析')
-                    .subtitleText()
-                }
-                .width('100%')
-                .margin({ bottom: 10 })
-
-                Row() {
-                  Column(){
-                    Text(this.myWeight.toString())
-                      .valueText()
-                    Text('体重 (kg)')
-                      .labelText()
-                      .margin({ top: 5 })
-                  }
-                  .layoutWeight(1)
-
-                  Column() {
-                    Text(this.myHeight.toString())
-                      .valueText()
-                    Text('身高 (cm)')
-                      .labelText()
-                      .margin({ top: 5 })
-                  }
-                  .layoutWeight(1)
-                }
-                .width('100%')
-                .margin({ bottom: 10 })
-
-                Row() {
-                  Column(){
-                    Text(this.bmi.toFixed(1))
-                      .valueText()
-                    Text('BMI')
-                      .labelText()
-                      .margin({ top: 5 })
-                  }
-                  .layoutWeight(1)
-
-                  Column() {
-                    Text('    ')
-                      .valueText()
-                  }
-                  .layoutWeight(1)
-                }
-                .width('100%')
-                .margin({ bottom: 10 })
               }
               .width('100%')
               .padding(15)
               .borderRadius(8)
               .backgroundColor('#f5f5f5')
               .margin({ top: 10, bottom: 20 })
+
+              // 添加批量输入步数按钮
+              Button('批量输入步数')
+                .width('90%')
+                .height(40)
+                .backgroundColor('#1698CE')
+                .margin({ top: 10, bottom: 20 })
+                .onClick(() => {
+                  this.stepInputTimes = ['08:00'];
+                  this.stepInputValues = ['0'];
+                  this.stepDialogController.open();
+                  this.checkStepsAndNotify(this.totalSteps);
+                })
+              // 分割线
+              Divider()
+                .width('90%')
+                .height(1)
+                .backgroundColor('#ddd')
+                .margin({ top: 10, bottom: 10 })
+
+              // 身体成分分析部分
+              Row() {
+                Image($r('app.media.bmi'))
+                  .width(24)
+                  .height(24)
+                  .margin({ right: 10 })
+
+                Text('身体成分分析')
+                  .subtitleText()
+              }
+              .width('100%')
+              .margin({ bottom: 10 })
+
+              Row() {
+                Column() {
+                  Text(this.myWeight.toString())
+                    .valueText()
+                  Text('体重 (kg)')
+                    .labelText()
+                    .margin({ top: 5 })
+                }
+                .layoutWeight(1)
+
+                Column() {
+                  Text(this.myHeight.toString())
+                    .valueText()
+                  Text('身高 (cm)')
+                    .labelText()
+                    .margin({ top: 5 })
+                }
+                .layoutWeight(1)
+              }
+              .width('100%')
+              .margin({ bottom: 10 })
+
+              Row() {
+                Column() {
+                  Text(this.bmi.toFixed(1))
+                    .valueText()
+                  Text('BMI')
+                    .labelText()
+                    .margin({ top: 5 })
+                }
+                .layoutWeight(1)
+
+                Column() {
+                  Text('    ')
+                    .valueText()
+                }
+                .layoutWeight(1)
+              }
+              .width('100%')
+              .margin({ bottom: 10 })
+            }
+            .width('100%')
+            .padding(15)
+            .borderRadius(8)
+            .backgroundColor('#f5f5f5')
+            .margin({ top: 10, bottom: 20 })
           }
           .scrollBar(BarState.Auto)
           .onScrollFrameBegin((offset: number) => {
@@ -1561,7 +1740,7 @@ struct MainHome {
             return { offsetRemain: offset };
           })
         }
-        .tabBar({ text: '我的运动'})
+        .tabBar({ text: '我的运动' })
 
         // 个人中心页面
         TabContent() {
@@ -1613,7 +1792,8 @@ struct MainHome {
               Button('编辑个人资料')
                 .primaryButton()
                 .onClick(() => {
-                  hilog.info(0x0000, TAG, `Navigating to myInfo with username: ${this.username}, userId: ${this.userId}`);
+                  hilog.info(0x0000, TAG,
+                    `Navigating to myInfo with username: ${this.username}, userId: ${this.userId}`);
                   router.pushUrl({
                     url: 'pages/myInfo',
                     params: {
@@ -1654,7 +1834,6 @@ struct MainHome {
                 this.ClickJumpToShowData();
               })
 
-              // 健康目标设置菜单项
               Row() {
                 Image($r('app.media.target'))
                   .width(30)

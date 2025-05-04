@@ -25,6 +25,10 @@ import { HeartRateRecord, WaterRecord } from '../common/HealthDataModel';
   .fontWeight(FontWeight.Bold)
   .margin({ bottom: 10 })
 }
+interface AggregatedDataPoint {
+  date: string;
+  averageRate: number;
+}
 interface RouterParams {
   username: string;
   userId: string;
@@ -45,6 +49,17 @@ const want: CalendarWant = {
   bundleName: "com.huawei.calendar",
   abilityName: "com.huawei.calendar.LauncherAbility"
 };
+
+interface GeneratedTypeLiteralInterface_1 {
+  dataPoints: AggregatedDataPoint[];
+  labels: string[];
+}
+
+interface GeneratedTypeLiteralInterface_2 {
+  dataPoints: AggregatedDataPoint[];
+  labels: string[];
+}
+
 @Entry
 @Component
 struct DataShow {
@@ -402,8 +417,201 @@ struct DataShow {
   }
 
 
-  drawHeartRateChart() {
+  processAggregatedData(dates: string[]): GeneratedTypeLiteralInterface_2 {
+    const dataPoints: AggregatedDataPoint[] = [];
+    const labels: string[] = [];
 
+    for (const date of dates) {
+      // Get all heart rate records for this date
+      const dayRecords = this.heartRateRecords.filter(record => record.date === date);
+
+      if (dayRecords.length > 0) {
+        // Calculate average heart rate for this day
+        const rates = dayRecords.map(record => record.rate);
+        const avgRate = Math.round(rates.reduce((sum, rate) => sum + rate, 0) / rates.length);
+
+        dataPoints.push({
+          date: date,
+          averageRate: avgRate
+        });
+
+        // Format the date as MM-DD
+        labels.push(date);
+      } else {
+        labels.push(date);
+      }
+    }
+
+    return { dataPoints, labels };
+  }
+  drawHeartRateChart() {
+    // Clear the entire canvas
+    this.context.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
+
+    // If no heart rate records, show "No Data" message
+    if (this.heartRateRecords.length === 0) {
+      this.context.fillStyle = '#888888';
+      this.context.textAlign = 'center';
+      this.context.font = '32px sans-serif';
+      this.context.fillText('暂无心率数据', this.canvasWidth / 2, this.canvasHeight / 2);
+      return;
+    }
+
+    // Sort records by time to ensure chronological order
+    const sortedRecords = [...this.heartRateRecords].sort((a, b) => {
+      return a.time.localeCompare(b.time);
+    });
+
+    // Get min and max heart rate values for Y-axis scaling
+    const rates = sortedRecords.map(record => record.rate);
+    const minRate = Math.max(Math.min(...rates) - 10, 0); // Add some padding
+    const maxRate = Math.max(...rates) + 10;
+    const rateRange = maxRate - minRate;
+
+    // Calculate chart dimensions (accounting for axes and padding)
+    const chartX = this.chartPadding + this.yAxisWidth;
+    const chartY = this.chartPadding;
+    const chartWidth = this.canvasWidth - this.yAxisWidth - this.chartPadding * 2;
+    const chartHeight = this.canvasHeight - this.xAxisHeight - this.chartPadding * 2;
+
+    // Define data display formats based on current tab
+    let dataPoints: HeartRateRecord[] | AggregatedDataPoint[] = [];
+    let xLabels: string[] = [];
+
+    // Process data based on selected tab (day, week, month)
+    if (this.selectedTab === 0) {
+      // Day view - use individual heart rate records
+      dataPoints = sortedRecords;
+      xLabels = sortedRecords.map(record => record.time);
+    } else if (this.selectedTab === 1) {
+      // Week view - aggregate by day
+      const weekData = this.processAggregatedData(this.weekDates);
+      dataPoints = weekData.dataPoints;
+      xLabels = weekData.labels;
+    } else {
+      // Month view - aggregate by day
+      const monthData = this.processAggregatedData(this.monthDates);
+      dataPoints = monthData.dataPoints;
+      xLabels = monthData.labels;
+    }
+
+    // Draw Y-axis
+    this.context.strokeStyle = '#CCCCCC';
+    this.context.lineWidth = 1;
+    this.context.beginPath();
+    this.context.moveTo(chartX, chartY);
+    this.context.lineTo(chartX, chartY + chartHeight);
+    this.context.stroke();
+
+    // Draw Y-axis labels
+    this.context.fillStyle = '#666666';
+    this.context.textAlign = 'right';
+    this.context.font = '32px sans-serif';
+
+    // Draw 5 evenly spaced Y-axis labels
+    const yLabelCount = 5;
+    for (let i = 0; i <= yLabelCount; i++) {
+      const yValue = minRate + (rateRange * (yLabelCount - i) / yLabelCount);
+      const yPos = chartY + (i * chartHeight / yLabelCount);
+
+      this.context.fillText(Math.round(yValue).toString(), chartX - 5, yPos + 4);
+
+      // Draw horizontal grid lines
+      this.context.strokeStyle = '#EEEEEE';
+      this.context.beginPath();
+      this.context.moveTo(chartX, yPos);
+      this.context.lineTo(chartX + chartWidth, yPos);
+      this.context.stroke();
+    }
+
+    // X-axis
+    this.context.strokeStyle = '#CCCCCC';
+    this.context.beginPath();
+    this.context.moveTo(chartX, chartY + chartHeight);
+    this.context.lineTo(chartX + chartWidth, chartY + chartHeight);
+    this.context.stroke();
+
+    // Draw X-axis labels
+    this.context.textAlign = 'center';
+
+    // Determine how many labels to show to avoid overcrowding
+    const maxLabels = Math.min(6, xLabels.length);
+    const labelStep = Math.ceil(xLabels.length / maxLabels);
+
+    for (let i = 0; i < xLabels.length; i += labelStep) {
+      if (i < xLabels.length) {
+        const label = xLabels[i];
+        const displayLabel = this.selectedTab === 0
+          ? label.substring(0, 5) // For day view, show hour:minute
+          : label.substring(5);    // For week/month view, show month-day
+
+        const xPos = chartX + (i / (xLabels.length - 1)) * chartWidth;
+
+        this.context.fillText(displayLabel, xPos, chartY + chartHeight + 20);
+
+        // Draw vertical grid lines
+        this.context.strokeStyle = '#EEEEEE';
+        this.context.beginPath();
+        this.context.moveTo(xPos, chartY);
+        this.context.lineTo(xPos, chartY + chartHeight);
+        this.context.stroke();
+      }
+    }
+
+    // Draw heart rate line
+    if (dataPoints.length > 1) {
+      this.context.strokeStyle = '#E74C3C';
+      this.context.lineWidth = 2;
+      this.context.beginPath();
+
+      for (let i = 0; i < dataPoints.length; i++) {
+        const point = dataPoints[i];
+        const rate = this.selectedTab === 0
+          ? (point as HeartRateRecord).rate
+          : (point as AggregatedDataPoint).averageRate;
+
+        const xPos = chartX + (i / (dataPoints.length - 1)) * chartWidth;
+        const yPos = chartY + chartHeight - ((rate - minRate) / rateRange) * chartHeight;
+
+        if (i === 0) {
+          this.context.moveTo(xPos, yPos);
+        } else {
+          this.context.lineTo(xPos, yPos);
+        }
+      }
+
+      this.context.stroke();
+
+      // Draw data points and rate values
+      this.context.fillStyle = '#FFFFFF';
+      this.context.strokeStyle = '#E74C3C';
+      this.context.lineWidth = 2;
+      this.context.textAlign = 'center';
+
+      for (let i = 0; i < dataPoints.length; i++) {
+        const point = dataPoints[i];
+        const rate = this.selectedTab === 0
+          ? (point as HeartRateRecord).rate
+          : (point as AggregatedDataPoint).averageRate;
+
+        const xPos = chartX + (i / (dataPoints.length - 1)) * chartWidth;
+        const yPos = chartY + chartHeight - ((rate - minRate) / rateRange) * chartHeight;
+
+        // Draw point circle
+        this.context.beginPath();
+        this.context.arc(xPos, yPos, 4, 0, Math.PI * 2);
+        this.context.fill();
+        this.context.stroke();
+
+        // Display the rate value above the point
+        this.context.fillStyle = '#E74C3C';
+        this.context.font = 'bold 32px sans-serif';
+        this.context.fillText(rate.toString(), xPos, yPos - 15);
+
+        // Reset fill style for next elements
+        this.context.fillStyle = '#FFFFFF';
+      }
+    }
   }
 
   build() {
@@ -565,32 +773,136 @@ struct DataShow {
             .margin({ top: 20, bottom: 10 })
             .alignItems(HorizontalAlign.Center)
 
-            Column() {
-              Text("心率趋势")
-                .fontSize(18)
-                .fontWeight(FontWeight.Bold)
-                .margin({ bottom: 10 })
-                .alignSelf(ItemAlign.Start)
+            if (this.selectedTab === 0) {
+              // 日视图显示心率趋势图
+              Column() {
+                Text("心率趋势")
+                  .fontSize(18)
+                  .fontWeight(FontWeight.Bold)
+                  .margin({ bottom: 10 })
+                  .alignSelf(ItemAlign.Start)
 
-              Canvas(this.context)
+                Canvas(this.context)
+                  .width('100%')
+                  .height('100%')
+                  .onReady(() => {
+                    // Get Canvas actual dimensions
+                    this.canvasWidth = this.context.width;
+                    this.canvasHeight = this.context.height;
+
+                    // Draw the heart rate chart
+                    this.drawHeartRateChart();
+                  })
+              }
+              .width('90%')
+              .height(250)
+              .padding(10)
+              .margin({ top: 10, bottom: 20 })
+              .backgroundColor('#FFFFFF')
+              .borderRadius(8)
+              .shadow({ radius: 4, color: 'rgba(0, 0, 0, 0.1)', offsetX: 0, offsetY: 2 })
+            } else {
+              // 周/月视图显示心率数据统计
+              Column() {
+                Text(this.selectedTab === 1 ? "本周心率概览" : "本月心率概览")
+                  .fontSize(18)
+                  .fontWeight(FontWeight.Bold)
+                  .margin({ bottom: 15 })
+                  .alignSelf(ItemAlign.Start)
+
+                Grid() {
+                  GridItem() {
+                    Column() {
+                      Text(this.restingHeartRate.toString())
+                        .valueText()
+                      Text("次/分")
+                        .fontSize(16)
+                        .fontColor('#666')
+                      Text("静息心率")
+                        .labelText()
+                        .margin({ top: 5 })
+                    }
+                    .width('100%')
+                    .height('100%')
+                    .justifyContent(FlexAlign.Center)
+                    .backgroundColor('#f5f7fa')
+                    .borderRadius(8)
+                  }
+
+                  GridItem() {
+                    Column() {
+                      Text(this.averageHeartRate.toString())
+                        .valueText()
+                      Text("次/分")
+                        .fontSize(16)
+                        .fontColor('#666')
+                      Text("平均心率")
+                        .labelText()
+                        .margin({ top: 5 })
+                    }
+                    .width('100%')
+                    .height('100%')
+                    .justifyContent(FlexAlign.Center)
+                    .backgroundColor('#f5f7fa')
+                    .borderRadius(8)
+                  }
+
+                  GridItem() {
+                    Column() {
+                      Text(this.lowestHeartRate.toString())
+                        .valueText()
+                      Text("次/分")
+                        .fontSize(16)
+                        .fontColor('#666')
+                      Text("最低心率")
+                        .labelText()
+                        .margin({ top: 5 })
+                    }
+                    .width('100%')
+                    .height('100%')
+                    .justifyContent(FlexAlign.Center)
+                    .backgroundColor('#f5f7fa')
+                    .borderRadius(8)
+                  }
+
+                  GridItem() {
+                    Column() {
+                      Text(this.highestHeartRate.toString())
+                        .valueText()
+                      Text("次/分")
+                        .fontSize(16)
+                        .fontColor('#666')
+                      Text("最高心率")
+                        .labelText()
+                        .margin({ top: 5 })
+                    }
+                    .width('100%')
+                    .height('100%')
+                    .justifyContent(FlexAlign.Center)
+                    .backgroundColor('#f5f7fa')
+                    .borderRadius(8)
+                  }
+                }
+                .columnsTemplate('1fr 1fr')
+                .rowsTemplate('1fr 1fr')
+                .columnsGap(10)
+                .rowsGap(10)
                 .width('100%')
-                .height('100%')
-                .onReady(() => {
-                  // Get Canvas actual dimensions
-                  this.canvasWidth = this.context.width;
-                  this.canvasHeight = this.context.height;
+                .height(200)
 
-                  // Draw the heart rate chart
-                  this.drawHeartRateChart();
-                })
+                Text(this.selectedTab === 1 ? "本周期间" : "本月期间")
+                  .fontSize(14)
+                  .fontColor('#888888')
+                  .margin({ top: 10 })
+                  .alignSelf(ItemAlign.Center)
+              }
+              .width('90%')
+              .padding(15)
+              .margin({ top: 10, bottom: 20 })
+              .backgroundColor('#FFFFFF')
+              .borderRadius(8)
+              .shadow({ radius: 4, color: 'rgba(0, 0, 0, 0.1)', offsetX: 0, offsetY: 2 })
             }
-            .width('90%')
-            .height(250)
-            .padding(10)
-            .margin({ top: 10, bottom: 20 })
-            .backgroundColor('#FFFFFF')  // Change from Color.Yellow to white
-            .borderRadius(8)
-            .shadow({ radius: 4, color: 'rgba(0, 0, 0, 0.1)', offsetX: 0, offsetY: 2 })
 
             // 概览部分--------------------------------------------------------------
             Row() {
@@ -726,33 +1038,94 @@ struct DataShow {
             .alignItems(HorizontalAlign.Center)
 
             Column() {
-              Text("饮水进度")
-                .fontSize(18)
-                .fontWeight(FontWeight.Bold)
-                .margin({ bottom: 20 })
               Stack() {
-                Progress({ value: Number(this.waterAmount), total: 2000 })
-                  .width('100%')
-                  .height(30)
-                  .color('#3498DB')
+                // 根据当前选择的视图类型，设置不同的total值
+                Progress({
+                  value: Number(this.waterAmount),
+                  total: this.selectedTab === 0 ? 2000 : (this.selectedTab === 1 ? 15000 : 60000),
+                  type: ProgressType.Ring
+                })
+                  .width('80%')
+                  .height(260)
+                  .style({
+                    strokeWidth: 20,
+                    scaleCount: 15,
+                    scaleWidth: 5
+                  })
+                    // 使用渐变色
+                  .color('#3498DB')  // 如果不支持渐变，至少使用基本颜色
+                  .backgroundColor('#EEEEEE')  // 未填充部分的颜色
 
-                Text(`${this.waterAmount}/2000ml`)
-                  .fontSize(14)
-                  .fontColor('#3498DB')
-                  .padding({bottom : 40})
+                Column() {
+                  if (this.selectedTab === 0) {
+                    // 日视图
+                    Text(`${this.waterAmount}`)
+                      .fontSize(28)
+                      .fontWeight(FontWeight.Bold)
+                      .fontColor('#333')
+
+                    Text(`/ 2000ml`)
+                      .fontSize(16)
+                      .fontColor('#666')
+                      .margin({ top: 5 })
+                  } else if (this.selectedTab === 1) {
+                    // 周视图
+                    Text(`${this.waterAmount}`)
+                      .fontSize(28)
+                      .fontWeight(FontWeight.Bold)
+                      .fontColor('#333')
+
+                    Text(`/ 15000ml`)
+                      .fontSize(16)
+                      .fontColor('#666')
+                      .margin({ top: 5 })
+
+                    Text("本周饮水")
+                      .fontSize(14)
+                      .fontColor('#888')
+                      .margin({ top: 8 })
+                  } else {
+                    // 月视图
+                    Text(`${this.waterAmount}`)
+                      .fontSize(28)
+                      .fontWeight(FontWeight.Bold)
+                      .fontColor('#333')
+
+                    Text(`/ 60000ml`)
+                      .fontSize(16)
+                      .fontColor('#666')
+                      .margin({ top: 5 })
+
+                    Text("本月饮水")
+                      .fontSize(14)
+                      .fontColor('#888')
+                      .margin({ top: 8 })
+                  }
+
+                  Row() {
+                    // 显示完成比例，限制最大为100%
+                    Text(`${Math.min(Math.round(Number(this.waterAmount) / (this.selectedTab === 0 ? 2000 : (this.selectedTab === 1 ? 15000 : 60000)) * 100), 100)}%`)
+                      .fontSize(18)
+                      .fontWeight(FontWeight.Medium)
+                      .fontColor('#2ECC71')
+                  }
+                  .margin({ top: 10 })
+                }
+                .alignItems(HorizontalAlign.Center)
               }
-              .width('90%')
+              .width('100%')
+              .height(260)
+              .alignContent(Alignment.Center)
 
-              Text("建议每日饮水量: 2000ml")
+              // 饮水量建议文本
+              Text(this.selectedTab === 0 ? "建议每日饮水量: 2000ml" :
+                (this.selectedTab === 1 ? "建议每周饮水量: 15000ml" : "建议每月饮水量: 60000ml"))
                 .fontSize(14)
                 .fontColor('#888888')
-                .margin({ top: 10 })
+                .margin({ top: 20 })
             }
-            .width('90%')
-            .padding(20)
-            .borderRadius(8)
-            .backgroundColor('#F5F5F5')
-            .margin({ top: 20, bottom: 20 })
+            .width('100%')
+            .alignItems(HorizontalAlign.Center)
             // 饮水记录部分
             Column() {
               Text("饮水记录")

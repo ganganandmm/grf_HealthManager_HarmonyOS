@@ -18,9 +18,9 @@ struct dataInput{
   @State currentDate: string = new Date().toISOString().split('T')[0];
   @State receivedHealthData: string = '';
   @State currentIndex: number = 0;
-  @State isNewLogin: boolean = false; // Track if this is a new login
-  @State lastUpdateTime: number = 0; // Track the last update time
-  @State tempWaterAmount: number = 0; // Temporary variable for water input
+  @State isNewLogin: boolean = false; // 检测是否是新用户登录
+  @State lastUpdateTime: number = 0; // 检测上次更新时间
+  @State tempWaterAmount: number = 0;
   private dbHelper: DatabaseHelper = new DatabaseHelper(getContext(this));
   private context = getContext(this) as common.UIAbilityContext;
 
@@ -42,7 +42,7 @@ struct dataInput{
       if (stepRecords.length > 0) {
         this.steps = stepRecords[0].steps;
       } else {
-        this.steps = 0; // Reset if no records
+        this.steps = 0;
       }
 
       // 加载心率数据

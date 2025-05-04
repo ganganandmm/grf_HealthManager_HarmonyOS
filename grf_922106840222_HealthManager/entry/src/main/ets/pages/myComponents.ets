@@ -1,4 +1,8 @@
 import { HeartRateRecord, StepTimeRecord, WaterRecord } from "../common/HealthDataModel";
+import { reminderAgent } from "@kit.BackgroundTasksKit";
+import notification from '@ohos.notification';
+import image from '@ohos.multimedia.image';
+import notificationManager from '@ohos.notificationManager';
 @Extend(Text) function labelText() {
   .fontSize(16)
   .fontColor('#666')
@@ -139,3 +143,4 @@ export struct StepTimeRecordItem {
     .margin({ bottom: 8 })
   }
 }
+
