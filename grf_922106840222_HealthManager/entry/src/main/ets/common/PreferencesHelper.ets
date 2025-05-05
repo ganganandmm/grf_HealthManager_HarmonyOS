@@ -1,6 +1,4 @@
 import preferences from '@ohos.data.preferences';
-
-const TAG: string = 'PreferencesHelper';
 const PREFERENCES_NAME = 'user_preferences';
 const KEY_USERNAME = 'username';
 const KEY_PASSWORD = 'password';

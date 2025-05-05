@@ -3,10 +3,9 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import promptAction from '@ohos.promptAction';
 import { DatabaseHelper } from '../common/DatabaseHelper';
 import { User } from '../common/UserModel';
-import { StepTimeRecord } from '../common/HealthDataModel';
-
-const TAG: string = 'MyInfo';
-
+import picker from '@ohos.file.picker';
+import fs from '@ohos.file.fs';
+const TAG: string = 'changeMyInfo';
 interface RouteParams {
   username?: string;
   userId?: number;
@@ -15,7 +14,7 @@ interface RouteParams {
 
 @Entry
 @Component
-struct MyInfo {
+struct changeMyInfo {
   @State userId: number = -1;
   @State username: string = '';
   @State age: string = '';
@@ -28,8 +27,11 @@ struct MyInfo {
   @State emergencyPhone: string = '';
   @State medicalHistory: string = '';
   @State isEdit: boolean = false;
-  @State bmi:number = 0;
+  @State bmi: number = 0;
+  @State avatarPath: string = '';
+  @State defaultAvatar: Resource = $r('app.media.avater_1');
   private dbHelper: DatabaseHelper = new DatabaseHelper(getContext(this));
+  private context = getContext(this);
 
   aboutToAppear() {
     const params = router.getParams() as RouteParams;
@@ -42,9 +44,6 @@ struct MyInfo {
       }
       if (params.isEdit !== undefined) {
         this.isEdit = params.isEdit;
-      }
-      if (this.myheight.toString()  && this.weight.toString()) {
-
       }
     }
 
@@ -69,9 +68,13 @@ struct MyInfo {
           this.email = userInfo.email || '';
           this.myheight = userInfo.height?.toString() || '';
           this.weight = userInfo.weight?.toString() || '';
-          this.emergencyContact = userInfo.emergencyContact || '';
-          this.emergencyPhone = userInfo.emergencyPhone || '';
-          this.medicalHistory = userInfo.medicalHistory || '';
+          this.avatarPath = userInfo.avatarPath || '';
+
+          // Calculate BMI if height and weight are available
+          if (userInfo.height && userInfo.weight) {
+            const heightInMeters = userInfo.height / 100;
+            this.bmi = userInfo.weight / (heightInMeters * heightInMeters);
+          }
 
           hilog.info(0x0000, TAG, 'User info loaded successfully');
         } else {
@@ -89,6 +92,41 @@ struct MyInfo {
     }
   }
 
+  async selectAvatar() {
+    try {
+      const photoPicker = new picker.PhotoViewPicker();
+      const photoSelectOptions = new picker.PhotoSelectOptions();
+      photoSelectOptions.MIMEType = picker.PhotoViewMIMETypes.IMAGE_TYPE;
+      photoSelectOptions.maxSelectNumber = 1;
+
+      const photoSelectResult = await photoPicker.select(photoSelectOptions);
+      if (photoSelectResult && photoSelectResult.photoUris && photoSelectResult.photoUris.length > 0) {
+        const photoUri = photoSelectResult.photoUris[0];
+        const appDir = this.context.filesDir + '/avatars/';
+        try {
+          const stat = await fs.stat(appDir);
+        } catch (err) {
+          if (err.code === 'ENOENT') {
+            await fs.mkdir(appDir);
+          } else {
+
+          }
+        }
+        const avatarFileName = `avatar_${this.userId}_${Date.now()}.jpg`;
+        const avatarFilePath = appDir + avatarFileName;
+
+        await fs.copyFile(photoUri, avatarFilePath);
+
+        this.avatarPath = avatarFilePath;
+        hilog.info(0x0000, TAG, `Avatar selected and copied to: ${this.avatarPath}`);
+      }
+    } catch (error) {
+      const errorMessage: string = error instanceof Error ? error.message : String(error);
+      hilog.error(0x0000, TAG, `Failed to select avatar: ${errorMessage}`);
+      promptAction.showToast({ message: '选择头像失败', duration: 2000 });
+    }
+  }
+
   async saveUserInfo() {
     if (this.userId < 0) {
       promptAction.showToast({ message: '用户ID无效' });
@@ -102,23 +140,6 @@ struct MyInfo {
         promptAction.showToast({ message: '无法获取用户信息' });
         return;
       }
-
-      // 创建更新对象，只包含需要更新的字段
-      const user = new User(
-        currentUser.username, // 保持原有用户名
-        currentUser.password, // 保持原有密码
-        this.userId,
-        this.age.trim() ? parseInt(this.age) : undefined,
-        this.gender !== '未设置' ? this.gender : undefined,
-        this.phone.trim() || undefined,
-        this.email.trim() || undefined,
-        this.myheight.trim() ? parseFloat(this.myheight) : undefined,
-        this.weight.trim() ? parseFloat(this.weight) : undefined,
-        this.emergencyContact.trim() || undefined,
-        this.emergencyPhone.trim() || undefined,
-        this.medicalHistory.trim() || undefined,
-        undefined // avatarPath
-      );
 
       // 验证数值输入
       if (this.age.trim() && isNaN(parseInt(this.age))) {
@@ -136,6 +157,20 @@ struct MyInfo {
         return;
       }
 
+      // 创建更新对象，包含头像路径
+      const user = new User(
+        currentUser.username, // 保持原有用户名
+        currentUser.password, // 保持原有密码
+        this.userId,
+        this.age.trim() ? parseInt(this.age) : undefined,
+        this.gender !== '未设置' ? this.gender : undefined,
+        this.phone.trim() || undefined,
+        this.email.trim() || undefined,
+        this.myheight.trim() ? parseFloat(this.myheight) : undefined,
+        this.weight.trim() ? parseFloat(this.weight) : undefined,
+        this.avatarPath || undefined
+      );
+
       hilog.info(0x0000, TAG, `Attempting to save user info: ${JSON.stringify({
         id: user.id,
         age: user.age,
@@ -143,7 +178,8 @@ struct MyInfo {
         phone: user.phone,
         email: user.email,
         height: user.height,
-        weight: user.weight
+        weight: user.weight,
+        avatarPath: user.avatarPath
       })}`);
 
       const success = await this.dbHelper.updateUserInfo(user);
@@ -182,6 +218,67 @@ struct MyInfo {
 
       Scroll() {
         Column() {
+          // 头像部分
+          Column() {
+            Text('头像')
+              .fontSize(18)
+              .fontWeight(FontWeight.Bold)
+              .margin({ bottom: 16 })
+              .alignSelf(ItemAlign.Start)
+
+            Stack({ alignContent: Alignment.Center }) {
+              if (this.avatarPath) {
+                // 显示用户头像
+                Image(this.avatarPath)
+                  .width(100)
+                  .height(100)
+                  .borderRadius(50)
+                  .objectFit(ImageFit.Cover)
+              } else {
+                // 显示默认头像
+                Image(this.defaultAvatar)
+                  .width(100)
+                  .height(100)
+                  .borderRadius(50)
+              }
+
+              if (this.isEdit) {
+                // 编辑模式下显示蒙层和编辑图标
+                Column() {
+                  Image($r('app.media.change_avater'))
+                    .width(30)
+                    .height(30)
+                }
+                .width(100)
+                .height(100)
+                .borderRadius(50)
+                .backgroundColor('rgba(0, 0, 0, 0.5)')
+                .justifyContent(FlexAlign.Center)
+              }
+            }
+            .width(100)
+            .height(100)
+            .margin({ bottom: 16 })
+            .onClick(() => {
+              if (this.isEdit) {
+                this.selectAvatar();
+              }
+            })
+
+            if (this.isEdit) {
+              Text('点击更换头像')
+                .fontSize(14)
+                .fontColor('#666666')
+                .margin({ bottom: 10 })
+            }
+          }
+          .width('90%')
+          .padding(15)
+          .borderRadius(8)
+          .backgroundColor('#f7f7f7')
+          .margin({ bottom: 20 })
+          .alignItems(HorizontalAlign.Center)
+
           // 基本信息
           Column() {
             Text('基本信息')
@@ -355,6 +452,14 @@ struct MyInfo {
                   .textAlign(TextAlign.End)
                   .onChange((value: string) => {
                     this.myheight = value;
+                    // Update BMI when height changes
+                    if (this.myheight && this.weight) {
+                      const height = parseFloat(this.myheight) / 100;
+                      const weight = parseFloat(this.weight);
+                      if (!isNaN(height) && !isNaN(weight) && height > 0) {
+                        this.bmi = weight / (height * height);
+                      }
+                    }
                   })
               } else {
                 Text(this.myheight ? `${this.myheight} cm` : '未设置')
@@ -381,6 +486,14 @@ struct MyInfo {
                   .textAlign(TextAlign.End)
                   .onChange((value: string) => {
                     this.weight = value;
+                    // Update BMI when weight changes
+                    if (this.myheight && this.weight) {
+                      const height = parseFloat(this.myheight) / 100;
+                      const weight = parseFloat(this.weight);
+                      if (!isNaN(height) && !isNaN(weight) && height > 0) {
+                        this.bmi = weight / (height * height);
+                      }
+                    }
                   })
               } else {
                 Text(this.weight ? `${this.weight} kg` : '未设置')
@@ -395,24 +508,21 @@ struct MyInfo {
             .borderRadius(8)
             .margin({ bottom: 8 })
 
+            // BMI
             Row() {
               Text('BMI')
                 .fontSize(16)
                 .width('30%')
-
-                Text(this.bmi.toFixed(1))
-                  .fontSize(16)
-                  .width('70%')
-                  .textAlign(TextAlign.End)
-
+              Text(this.bmi > 0 ? this.bmi.toFixed(1) : '未计算')
+                .fontSize(16)
+                .width('70%')
+                .textAlign(TextAlign.End)
             }
-
             .width('100%')
             .padding(10)
             .backgroundColor('#ffffff')
             .borderRadius(8)
             .margin({ bottom: 8 })
-
           }
           .width('90%')
           .padding(15)
@@ -450,34 +560,5 @@ struct MyInfo {
     .width('100%')
     .height('100%')
     .backgroundColor('#f5f5f5')
-  }
-}
-
-@Component
-export struct StepTimeRecordItem {
-   record!: StepTimeRecord;
-
-  build() {
-    Row() {
-      Text(this.record.time)
-        .fontSize(16)
-        .fontWeight(FontWeight.Bold)
-        .width('30%')
-
-      Text(`${this.record.steps} 步`)
-        .fontSize(16)
-        .fontColor('#1698CE')
-        .width('40%')
-
-      Text(`约 ${(this.record.steps / 3 / 1000).toFixed(2)} 公里`)
-        .fontSize(14)
-        .fontColor('#666')
-        .width('30%')
-    }
-    .width('100%')
-    .padding(10)
-    .borderRadius(8)
-    .backgroundColor('#f7f7f7')
-    .margin({ bottom: 8 })
   }
 }

@@ -8,9 +8,6 @@ export class User {
   email?: string;
   height?: number;
   weight?: number;
-  emergencyContact?: string;
-  emergencyPhone?: string;
-  medicalHistory?: string;
   avatarPath?: string;
 
   constructor(
@@ -23,9 +20,6 @@ export class User {
     email?: string,
     height?: number,
     weight?: number,
-    emergencyContact?: string,
-    emergencyPhone?: string,
-    medicalHistory?: string,
     avatarPath?: string
   ) {
     this.username = username;
@@ -37,9 +31,6 @@ export class User {
     this.email = email;
     this.height = height;
     this.weight = weight;
-    this.emergencyContact = emergencyContact;
-    this.emergencyPhone = emergencyPhone;
-    this.medicalHistory = medicalHistory;
     this.avatarPath = avatarPath;
   }
 }

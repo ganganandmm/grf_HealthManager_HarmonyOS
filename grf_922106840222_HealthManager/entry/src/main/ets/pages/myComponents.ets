@@ -1,8 +1,4 @@
-import { HeartRateRecord, StepTimeRecord, WaterRecord } from "../common/HealthDataModel";
-import { reminderAgent } from "@kit.BackgroundTasksKit";
-import notification from '@ohos.notification';
-import image from '@ohos.multimedia.image';
-import notificationManager from '@ohos.notificationManager';
+import { HeartRateRecord, StepRecord, WaterRecord } from "../common/HealthDataModel";
 @Extend(Text) function labelText() {
   .fontSize(16)
   .fontColor('#666')
@@ -115,9 +111,10 @@ export struct DataInputRow {
   }
 }
 
+// myComponents.ets 中的 StepRecordItem 组件
 @Component
-export struct StepTimeRecordItem {
-  @Prop record: StepTimeRecord;
+export struct StepRecordItem {
+  @Prop record: StepRecord;
 
   build() {
     Row() {
@@ -143,4 +140,3 @@ export struct StepTimeRecordItem {
     .margin({ bottom: 8 })
   }
 }
-

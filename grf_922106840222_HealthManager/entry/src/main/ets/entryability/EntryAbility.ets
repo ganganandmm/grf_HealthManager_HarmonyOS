@@ -115,7 +115,8 @@ export default class EntryAbility extends UIAbility {
 
       // 保存步数记录
       if (steps !== undefined) {
-        const stepRecord = new StepRecord(id, date, steps);
+        const time = new Date().toTimeString().split(' ')[0].substring(0, 5);
+        const stepRecord = new StepRecord(id, date,time, steps);
         await this.dbHelper.insertStepRecord(stepRecord);
         hilog.info(0x0000, TAG, `Step record saved: userId=${id}, date=${date}, steps=${steps}`);
       }

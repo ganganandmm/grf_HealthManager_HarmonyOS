@@ -1,7 +1,8 @@
 import relationalStore from '@ohos.data.relationalStore';
 import { User } from './UserModel';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { StepRecord, HeartRateRecord, SleepRecord, WaterRecord, StepTimeRecord, StepTimeInput } from './HealthDataModel';
+import { StepRecord, HeartRateRecord, SleepRecord, WaterRecord } from './HealthDataModel';
+import { StepTimeInput } from '../pages/mainhomeInterface';
 
 const TAG: string = 'DatabaseHelper';
 
@@ -14,7 +15,7 @@ const STORE_CONFIG: StoreConfig = {
   name: 'HealthDB.db',
   securityLevel: relationalStore.SecurityLevel.S1
 };
-
+// 用户信息表定义
 const SQL_CREATE_USER_TABLE = 'CREATE TABLE IF NOT EXISTS user ' +
   '(id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
   'username TEXT NOT NULL, ' +
@@ -30,13 +31,16 @@ const SQL_CREATE_USER_TABLE = 'CREATE TABLE IF NOT EXISTS user ' +
   'medical_history TEXT, ' +
   'avatar_path TEXT)';
 
+// 步数信息表定义
 const SQL_CREATE_STEP_TABLE = 'CREATE TABLE IF NOT EXISTS step_record ' +
   '(id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
   'user_id INTEGER NOT NULL, ' +
   'date TEXT NOT NULL, ' +
+  'time TEXT NOT NULL, ' + // 确保包含 time 列
   'steps INTEGER NOT NULL, ' +
   'FOREIGN KEY (user_id) REFERENCES user(id))';
 
+// 心率信息表定义
 const SQL_CREATE_HEART_RATE_TABLE = 'CREATE TABLE IF NOT EXISTS heart_rate_record ' +
   '(id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
   'user_id INTEGER NOT NULL, ' +
@@ -45,6 +49,7 @@ const SQL_CREATE_HEART_RATE_TABLE = 'CREATE TABLE IF NOT EXISTS heart_rate_recor
   'rate INTEGER NOT NULL, ' +
   'FOREIGN KEY (user_id) REFERENCES user(id))';
 
+//睡眠信息表定义
 const SQL_CREATE_SLEEP_TABLE = 'CREATE TABLE IF NOT EXISTS sleep_record ' +
   '(id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
   'user_id INTEGER NOT NULL, ' +
@@ -52,6 +57,7 @@ const SQL_CREATE_SLEEP_TABLE = 'CREATE TABLE IF NOT EXISTS sleep_record ' +
   'duration INTEGER NOT NULL, ' +
   'FOREIGN KEY (user_id) REFERENCES user(id))';
 
+// 饮水量信息表定义
 const SQL_CREATE_WATER_TABLE = 'CREATE TABLE IF NOT EXISTS water_record ' +
   '(id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
   'user_id INTEGER NOT NULL, ' +
@@ -61,20 +67,24 @@ const SQL_CREATE_WATER_TABLE = 'CREATE TABLE IF NOT EXISTS water_record ' +
   'FOREIGN KEY (user_id) REFERENCES user(id))';
 
 
+// 数据库操作类
 @Observed
 export class DatabaseHelper {
   private rdbStore: relationalStore.RdbStore | null = null;
   private context: Context;
 
-  constructor(context: Context) {
+  constructor(context: Context) { // 构造器
     this.context = context;
   }
 
-  // 修改initDatabase方法，确保步数时间记录表创建
+  // 初始化数据库
   public async initDatabase(): Promise<boolean> {
     try {
       hilog.info(0x0000, TAG, 'Initializing database');
       this.rdbStore = await relationalStore.getRdbStore(this.context, STORE_CONFIG);
+
+      // 检查 step_record 表是否需要升级
+      await this.upgradeStepRecordTable();
 
       // 创建基本表
       await this.rdbStore.executeSql(SQL_CREATE_USER_TABLE, []);
@@ -83,13 +93,7 @@ export class DatabaseHelper {
       await this.rdbStore.executeSql(SQL_CREATE_SLEEP_TABLE, []);
       await this.rdbStore.executeSql(SQL_CREATE_WATER_TABLE, []);
 
-      // 创建步数时间记录表，添加详细日志
-      const stepTimeTableCreated = await this.createStepTimeRecordsTable();
-      if (!stepTimeTableCreated) {
-        hilog.error(0x0000, TAG, 'Failed to create step time records table');
-      }
-
-      // 插入测试用户
+      // 插入测试用户，用来开发测试用
       await this.insertTestUser();
       hilog.info(0x0000, TAG, 'Database initialized successfully');
       return true;
@@ -98,7 +102,7 @@ export class DatabaseHelper {
       return false;
     }
   }
-
+  // 插入测试用户方法，用来开发测试用
   private async insertTestUser(): Promise<void> {
     try {
       const users = await this.queryUserByUsername('admin');
@@ -117,13 +121,14 @@ export class DatabaseHelper {
     }
   }
 
+  // 插入测试用户的测试信息
   private async insertTestHealthData(userId: number): Promise<void> {
     try {
       const today = new Date();
       const dateStr = today.toISOString().split('T')[0];
 
       // 插入步数记录
-      const stepRecord = new StepRecord(userId, dateStr, 500);
+      const stepRecord = new StepRecord(userId, dateStr,"2025-04-01",10,500);
       await this.insertStepRecord(stepRecord);
 
       // 插入心率记录
@@ -142,6 +147,7 @@ export class DatabaseHelper {
     }
   }
 
+  // 插入新注册用户方法，用于注册
   public async insertUser(user: User): Promise<number> {
     if (!this.rdbStore) {
       hilog.error(0x0000, TAG, 'RdbStore is not initialized');
@@ -162,7 +168,7 @@ export class DatabaseHelper {
       return -1;
     }
   }
-  // 在DatabaseHelper.ets中，修复步数时间记录表的创建方法
+  // 步数时间记录表的创建方法
   async createStepTimeRecordsTable(): Promise<boolean> {
     if (!this.rdbStore) {
       hilog.error(0x0000, TAG, 'RdbStore is not initialized');
@@ -222,146 +228,69 @@ export class DatabaseHelper {
       return false;
     }
   }
-  async insertStepTimeRecord(record: StepTimeRecord): Promise<boolean> {
+  //更新升级步数信息表
+  private async upgradeStepRecordTable(): Promise<void> {
     if (!this.rdbStore) {
-      hilog.error(0x0000, TAG, 'RdbStore is not initialized');
-      return false;
+      return;
     }
 
     try {
-      hilog.info(0x0000, TAG, `Inserting step time record: stepRecordId=${record.stepRecordId}, time=${record.time}, steps=${record.steps}`);
+      // 检查表是否存在
+      const checkTableSql = "SELECT name FROM sqlite_master WHERE type='table' AND name='step_record'";
+      const tableResult = await this.rdbStore.querySql(checkTableSql, []);
+      const tableExists = tableResult.rowCount > 0;
+      tableResult.close();
 
-      // 验证表是否存在
-      try {
-        const checkTableSql = "SELECT name FROM sqlite_master WHERE type='table' AND name='step_time_record'";
-        const resultSet = await this.rdbStore.querySql(checkTableSql, []);
-        const tableExists = resultSet.rowCount > 0;
-        resultSet.close();
+      if (tableExists) {
+        // 检查表结构
+        const checkColumnSql = "PRAGMA table_info(step_record)";
+        const columnResult = await this.rdbStore.querySql(checkColumnSql, []);
 
-        if (!tableExists) {
-          hilog.error(0x0000, TAG, 'step_time_record table does not exist, attempting to create');
-          const created = await this.createStepTimeRecordsTable();
-          if (!created) {
-            hilog.error(0x0000, TAG, 'Failed to create step_time_record table');
-            return false;
+        let hasTimeColumn = false;
+        while (columnResult.goToNextRow()) {
+          const columnName = columnResult.getString(columnResult.getColumnIndex('name'));
+          if (columnName === 'time') {
+            hasTimeColumn = true;
+            break;
           }
         }
-      } catch (checkError) {
-        hilog.error(0x0000, TAG, `Error checking if table exists: ${checkError}`);
-      }
+        columnResult.close();
 
-      const valuesBucket: relationalStore.ValuesBucket = {
-        'step_record_id': record.stepRecordId,
-        'time': record.time,
-        'steps': record.steps
-      };
+        if (!hasTimeColumn) {
+          hilog.info(0x0000, TAG, 'step_record表缺少time列，进行表结构升级');
 
-      hilog.debug(0x0000, TAG, `ValuesBucket for insertion: ${JSON.stringify(valuesBucket)}`);
+          // 创建新表
+          const tempTableSql = 'CREATE TABLE IF NOT EXISTS step_record_new ' +
+            '(id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
+            'user_id INTEGER NOT NULL, ' +
+            'date TEXT NOT NULL, ' +
+            'time TEXT NOT NULL, ' +
+            'steps INTEGER NOT NULL, ' +
+            'FOREIGN KEY (user_id) REFERENCES user(id))';
 
-      const rowId = await this.rdbStore.insert('step_time_record', valuesBucket);
-      hilog.info(0x0000, TAG, `Inserted step time record with rowId: ${rowId}`);
-      return rowId >= 0;
-    } catch (error) {
-      hilog.error(0x0000, TAG, `Failed to insert step time record: ${error}`);
-      return false;
-    }
-  }
+          await this.rdbStore.executeSql(tempTableSql, []);
 
-  // 查询指定步数记录的所有时间点记录
-  async getStepTimeRecords(stepRecordId: number): Promise<StepTimeRecord[]> {
-    if (!this.rdbStore) {
-      hilog.error(0x0000, TAG, 'RdbStore is not initialized');
-      return [];
-    }
+          // 迁移数据
+          const currentTime = new Date().toTimeString().substring(0, 5); // 默认时间为当前时间，格式为HH:MM
+          const migrateSql = `INSERT INTO step_record_new (user_id, date, time, steps)
+                            SELECT user_id, date, '${currentTime}', steps FROM step_record`;
+          await this.rdbStore.executeSql(migrateSql, []);
 
-    try {
-      hilog.info(0x0000, TAG, `Querying step time records for stepRecordId: ${stepRecordId}`);
+          // 删除旧表
+          await this.rdbStore.executeSql('DROP TABLE step_record', []);
 
-      // 验证表是否存在
-      try {
-        const checkTableSql = "SELECT name FROM sqlite_master WHERE type='table' AND name='step_time_record'";
-        const resultSet = await this.rdbStore.querySql(checkTableSql, []);
-        const tableExists = resultSet.rowCount > 0;
-        resultSet.close();
+          // 重命名新表
+          await this.rdbStore.executeSql('ALTER TABLE step_record_new RENAME TO step_record', []);
 
-        if (!tableExists) {
-          hilog.warn(0x0000, TAG, 'step_time_record table does not exist, creating and returning empty array');
-          await this.createStepTimeRecordsTable();
-          return [];
+          hilog.info(0x0000, TAG, 'step_record表结构升级完成');
         }
-      } catch (checkError) {
-        hilog.error(0x0000, TAG, `Error checking if table exists: ${checkError}`);
       }
-
-      const predicates = new relationalStore.RdbPredicates('step_time_record');
-      predicates.equalTo('step_record_id', stepRecordId);
-      predicates.orderByAsc('time');
-
-      hilog.debug(0x0000, TAG, `Executing query with predicates: step_record_id=${stepRecordId}`);
-
-      const resultSet = await this.rdbStore.query(predicates, ['id', 'step_record_id', 'time', 'steps']);
-      hilog.info(0x0000, TAG, `Query returned ${resultSet.rowCount} records`);
-
-      const records: StepTimeRecord[] = [];
-
-      while (resultSet.goToNextRow()) {
-        const id = resultSet.getLong(resultSet.getColumnIndex('id'));
-        const recordId = resultSet.getLong(resultSet.getColumnIndex('step_record_id'));
-        const time = resultSet.getString(resultSet.getColumnIndex('time'));
-        const steps = resultSet.getLong(resultSet.getColumnIndex('steps'));
-
-        hilog.debug(0x0000, TAG, `Found record: id=${id}, stepRecordId=${recordId}, time=${time}, steps=${steps}`);
-
-        const record = new StepTimeRecord(recordId, time, steps);
-        record.id = id;
-        records.push(record);
-      }
-
-      resultSet.close();
-      hilog.info(0x0000, TAG, `Retrieved ${records.length} step time records`);
-      return records;
     } catch (error) {
-      hilog.error(0x0000, TAG, `Failed to query step time records: ${error}`);
-      return [];
-    }
-  }
-  async deleteStepTimeRecords(stepRecordId: number): Promise<boolean> {
-    if (!this.rdbStore) {
-      hilog.error(0x0000, TAG, 'RdbStore is not initialized');
-      return false;
-    }
-
-    try {
-      hilog.info(0x0000, TAG, `Deleting step time records for stepRecordId: ${stepRecordId}`);
-
-      // 验证表是否存在
-      try {
-        const checkTableSql = "SELECT name FROM sqlite_master WHERE type='table' AND name='step_time_record'";
-        const resultSet = await this.rdbStore.querySql(checkTableSql, []);
-        const tableExists = resultSet.rowCount > 0;
-        resultSet.close();
-
-        if (!tableExists) {
-          hilog.warn(0x0000, TAG, 'step_time_record table does not exist, nothing to delete');
-          return true; // 表不存在，视为删除成功
-        }
-      } catch (checkError) {
-        hilog.error(0x0000, TAG, `Error checking if table exists: ${checkError}`);
-      }
-
-      const predicates = new relationalStore.RdbPredicates('step_time_record');
-      predicates.equalTo('step_record_id', stepRecordId);
-
-      const deletedRows = await this.rdbStore.delete(predicates);
-      hilog.info(0x0000, TAG, `Deleted ${deletedRows} step time records`);
-      return true;
-    } catch (error) {
-      hilog.error(0x0000, TAG, `Failed to delete step time records: ${error}`);
-      return false;
+      hilog.error(0x0000, TAG, `升级step_record表结构失败: ${error}`);
     }
   }
 
-  // 在DatabaseHelper.ets中增强batchSaveStepRecords方法
+  //批量保存步数记录方法
   async batchSaveStepRecords(userId: number, date: string, timeStepsArray: StepTimeInput[]): Promise<boolean> {
     if (!this.rdbStore) {
       hilog.error(0x0000, TAG, 'RdbStore is not initialized');
@@ -371,14 +300,6 @@ export class DatabaseHelper {
     hilog.info(0x0000, TAG, `batchSaveStepRecords: Starting for user ${userId}, date ${date}, records: ${timeStepsArray.length}`);
 
     try {
-      // 计算总步数
-      let totalSteps = 0;
-      for (const timeStep of timeStepsArray) {
-        totalSteps += timeStep.steps;
-        hilog.debug(0x0000, TAG, `Record: time=${timeStep.time}, steps=${timeStep.steps}`);
-      }
-      hilog.info(0x0000, TAG, `Total steps to save: ${totalSteps}`);
-
       // 检查用户存在性
       const user = await this.getUserById(userId);
       if (!user) {
@@ -390,59 +311,7 @@ export class DatabaseHelper {
       hilog.info(0x0000, TAG, 'Starting database transaction');
       await this.rdbStore.beginTransaction();
 
-      // 查询是否已有当日记录
-      hilog.info(0x0000, TAG, `Querying existing step records for date: ${date}`);
-      const stepRecords = await this.getStepRecords(userId, date);
-      hilog.info(0x0000, TAG, `Found ${stepRecords.length} existing records for the date`);
-
-      let stepRecordId: number;
-
-      if (stepRecords.length > 0) {
-        // 更新现有记录
-        const existingRecord = stepRecords[0];
-        hilog.info(0x0000, TAG, `Updating existing record with ID: ${existingRecord.id}, current steps: ${existingRecord.steps}, new steps: ${totalSteps}`);
-
-        existingRecord.steps = totalSteps;
-        const updated = await this.updateStepRecord(existingRecord);
-
-        if (!updated) {
-          hilog.error(0x0000, TAG, `Failed to update step record with ID: ${existingRecord.id}`);
-          await this.rdbStore.rollBack();
-          return false;
-        }
-
-        stepRecordId = Number(existingRecord.id);
-        hilog.info(0x0000, TAG, `Successfully updated step record, ID: ${stepRecordId}`);
-
-        // 删除现有的时间点记录
-        hilog.info(0x0000, TAG, `Deleting existing time records for step record ID: ${stepRecordId}`);
-        await this.deleteStepTimeRecords(stepRecordId);
-      } else {
-        // 创建新记录
-        hilog.info(0x0000, TAG, `Creating new step record for date: ${date}, steps: ${totalSteps}`);
-
-        // 使用valueBucket，确保数据类型正确
-        const valuesBucket: relationalStore.ValuesBucket = {
-          'user_id': userId,
-          'date': date,
-          'steps': totalSteps
-        };
-
-        const rowId = await this.rdbStore.insert('step_record', valuesBucket);
-
-        if (rowId < 0) {
-          hilog.error(0x0000, TAG, `Failed to insert main step record, rowId: ${rowId}`);
-          await this.rdbStore.rollBack();
-          return false;
-        }
-
-        stepRecordId = rowId;
-        hilog.info(0x0000, TAG, `Successfully inserted new step record, ID: ${stepRecordId}`);
-      }
-
-      // 插入时间点记录
-      hilog.info(0x0000, TAG, `Inserting ${timeStepsArray.length} step time records`);
-      let timeRecordsInserted = 0;
+      let recordsInserted = 0; //插入的记录数量，初始为0
 
       for (const timeStep of timeStepsArray) {
         if (!timeStep.time || timeStep.steps <= 0) {
@@ -450,39 +319,38 @@ export class DatabaseHelper {
           continue; // 跳过无效记录
         }
 
-        const timeRecord = new StepTimeRecord(stepRecordId, timeStep.time, timeStep.steps);
-
         // 使用明确的valueBucket定义，确保数据类型正确
-        const timeValuesBucket: relationalStore.ValuesBucket = {
-          'step_record_id': stepRecordId,
+        const valuesBucket: relationalStore.ValuesBucket = {
+          'user_id': userId,
+          'date': date,
           'time': timeStep.time,
           'steps': timeStep.steps
         };
 
         try {
-          const timeRowId = await this.rdbStore.insert('step_time_record', timeValuesBucket);
+          const rowId = await this.rdbStore.insert('step_record', valuesBucket); //插入一条记录
 
-          if (timeRowId < 0) {
-            hilog.error(0x0000, TAG, `Failed to insert step time record for time: ${timeStep.time}, rowId: ${timeRowId}`);
+          if (rowId < 0) {
+            hilog.error(0x0000, TAG, `Failed to insert step record for time: ${timeStep.time}, rowId: ${rowId}`);
             await this.rdbStore.rollBack();
             return false;
           }
 
-          timeRecordsInserted++;
-          hilog.debug(0x0000, TAG, `Inserted time record: time=${timeStep.time}, steps=${timeStep.steps}, rowId=${timeRowId}`);
+          recordsInserted++;
+          hilog.debug(0x0000, TAG, `Inserted step record: time=${timeStep.time}, steps=${timeStep.steps}, rowId=${rowId}`);
         } catch (insertError) {
-          hilog.error(0x0000, TAG, `Exception inserting time record: ${insertError}`);
+          hilog.error(0x0000, TAG, `Exception inserting step record: ${insertError}`);
           await this.rdbStore.rollBack();
           return false;
         }
       }
 
-      hilog.info(0x0000, TAG, `Successfully inserted ${timeRecordsInserted} time records`);
+      hilog.info(0x0000, TAG, `Successfully inserted ${recordsInserted} step records`);
 
       // 提交事务
       hilog.info(0x0000, TAG, 'Committing transaction');
       await this.rdbStore.commit();
-      hilog.info(0x0000, TAG, `Successfully saved batch step records. Total steps: ${totalSteps}`);
+      hilog.info(0x0000, TAG, `Successfully saved batch step records. Total records: ${recordsInserted}`);
       return true;
     } catch (error) {
       // 回滚事务
@@ -499,20 +367,7 @@ export class DatabaseHelper {
     }
   }
 
-  // 辅助方法：插入记录并返回ID
-  private async insertAndGetId(tableName: string, values: relationalStore.ValuesBucket): Promise<number> {
-    if (!this.rdbStore) {
-      return -1;
-    }
-
-    try {
-      const rowId = await this.rdbStore.insert(tableName, values);
-      return rowId;
-    } catch (error) {
-      hilog.error(0x0000, TAG, `grf_Failed to insert into ${tableName}: ${error}`);
-      return -1;
-    }
-  }
+  //通过用户名查询用户信息方法
   public async queryUserByUsername(username: string): Promise<User[]> {
     if (!this.rdbStore) {
       hilog.error(0x0000, TAG, 'grf_RdbStore is not initialized');
@@ -541,6 +396,7 @@ export class DatabaseHelper {
     }
   }
 
+  // 查询用户是否合法
   public async validateUser(username: string, password: string): Promise<User | null> {
     try {
       const users = await this.queryUserByUsername(username);
@@ -559,7 +415,7 @@ export class DatabaseHelper {
     }
   }
 
-  // 步数记录相关方法
+  // 步数记录相关方法，插入一条数据记录
   public async insertStepRecord(record: StepRecord): Promise<boolean> {
     if (!this.rdbStore) {
       return false;
@@ -568,6 +424,7 @@ export class DatabaseHelper {
     const valuesBucket: relationalStore.ValuesBucket = {
       'user_id': record.userId,
       'date': record.date,
+      'time': record.time,
       'steps': record.steps
     };
 
@@ -590,17 +447,19 @@ export class DatabaseHelper {
       if (date) {
         predicates.equalTo('date', date);
       }
+      predicates.orderByAsc('time'); // 按时间顺序排序
 
-      const resultSet = await this.rdbStore.query(predicates, ['id', 'user_id', 'date', 'steps']);
+      const resultSet = await this.rdbStore.query(predicates, ['id', 'user_id', 'date', 'time', 'steps']);
       const records: StepRecord[] = [];
 
       while (resultSet.goToNextRow()) {
         const id = resultSet.getLong(resultSet.getColumnIndex('id'));
         const userId = resultSet.getLong(resultSet.getColumnIndex('user_id'));
         const date = resultSet.getString(resultSet.getColumnIndex('date'));
+        const time = resultSet.getString(resultSet.getColumnIndex('time'));
         const steps = resultSet.getLong(resultSet.getColumnIndex('steps'));
 
-        records.push(new StepRecord(userId, date, steps, id.toString()));
+        records.push(new StepRecord(userId, date, time, steps, id));
       }
 
       resultSet.close();
@@ -611,7 +470,7 @@ export class DatabaseHelper {
     }
   }
 
-  // 心率记录相关方法
+  // 心率记录相关方法。插入一条记录
   public async insertHeartRateRecord(record: HeartRateRecord): Promise<boolean> {
     if (!this.rdbStore) {
       return false;
@@ -633,6 +492,7 @@ export class DatabaseHelper {
     }
   }
 
+  // 返回心率记录方法
   public async getHeartRateRecords(userId: number, date?: string): Promise<HeartRateRecord[]> {
     if (!this.rdbStore) {
       return [];
@@ -666,7 +526,7 @@ export class DatabaseHelper {
     }
   }
 
-  // 睡眠记录相关方法
+  // 睡眠记录插入方法
   public async insertSleepRecord(record: SleepRecord): Promise<boolean> {
     if (!this.rdbStore) {
       return false;
@@ -687,6 +547,7 @@ export class DatabaseHelper {
     }
   }
 
+  // 获取用户睡眠时间方法
   public async getSleepRecords(userId: number, date?: string): Promise<SleepRecord[]> {
     if (!this.rdbStore) {
       return [];
@@ -719,7 +580,7 @@ export class DatabaseHelper {
     }
   }
 
-  // 饮水记录相关方法
+  // 饮水记录插入方法
   public async insertWaterRecord(record: WaterRecord): Promise<boolean> {
     if (!this.rdbStore) {
       return false;
@@ -741,6 +602,8 @@ export class DatabaseHelper {
     }
   }
 
+
+  //获取用户饮水数据方法
   public async getWaterRecords(userId: number, date?: string): Promise<WaterRecord[]> {
     if (!this.rdbStore) {
       return [];
@@ -774,6 +637,7 @@ export class DatabaseHelper {
     }
   }
 
+  //关闭数据库方法
   public closeDatabase() {
     if (this.rdbStore) {
       this.rdbStore.close();
@@ -781,16 +645,15 @@ export class DatabaseHelper {
       hilog.info(0x0000, TAG, 'Database closed');
     }
   }
-  // Add these methods to DatabaseHelper class
 
-  // Check if the database has been updated since the last check
+
+  // C检查数据是否更新
   public async checkDatabaseUpdates(userId: number, lastCheckTime: number): Promise<boolean> {
     if (!this.rdbStore) {
       return false;
     }
 
     try {
-      // Check for any recent health data records
       const stepsUpdated = await this.hasRecentUpdates('step_record', userId, lastCheckTime);
       const heartRateUpdated = await this.hasRecentUpdates('heart_rate_record', userId, lastCheckTime);
       const sleepUpdated = await this.hasRecentUpdates('sleep_record', userId, lastCheckTime);
@@ -803,15 +666,13 @@ export class DatabaseHelper {
     }
   }
 
-  // Helper method to check if specific table has recent updates
+
   private async hasRecentUpdates(tableName: string, userId: number, lastCheckTime: number): Promise<boolean> {
     if (!this.rdbStore) {
       return false;
     }
 
     try {
-      // In a real app, you would have a lastUpdated timestamp column in each table
-      // For now, we'll consider any records for today as potentially new updates
       const today = new Date().toISOString().split('T')[0];
 
       const predicates = new relationalStore.RdbPredicates(tableName);
@@ -829,7 +690,7 @@ export class DatabaseHelper {
     }
   }
 
-  // Add method to update health data
+  // 更新步数信息
   public async updateStepRecord(record: StepRecord): Promise<boolean> {
     if (!this.rdbStore || !record.id) {
       return false;
@@ -839,6 +700,10 @@ export class DatabaseHelper {
       const valuesBucket: relationalStore.ValuesBucket = {
         'steps': record.steps
       };
+
+      if (record.time) {
+        valuesBucket.time = record.time;
+      }
 
       const predicates = new relationalStore.RdbPredicates('step_record');
       predicates.equalTo('id', record.id);
@@ -851,7 +716,6 @@ export class DatabaseHelper {
     }
   }
 
-  // Similar update methods for other health data types
   public async updateHeartRateRecord(record: HeartRateRecord): Promise<boolean> {
     if (!this.rdbStore || !record.id) {
       return false;
@@ -917,23 +781,6 @@ export class DatabaseHelper {
       valuesBucket.weight = null;
     }
 
-    if (user.emergencyContact !== undefined) {
-      valuesBucket.emergency_contact = user.emergencyContact;
-    } else {
-      valuesBucket.emergency_contact = null;
-    }
-
-    if (user.emergencyPhone !== undefined) {
-      valuesBucket.emergency_phone = user.emergencyPhone;
-    } else {
-      valuesBucket.emergency_phone = null;
-    }
-
-    if (user.medicalHistory !== undefined) {
-      valuesBucket.medical_history = user.medicalHistory;
-    } else {
-      valuesBucket.medical_history = null;
-    }
 
     if (user.avatarPath !== undefined) {
       valuesBucket.avatar_path = user.avatarPath;
@@ -957,7 +804,7 @@ export class DatabaseHelper {
     }
   }
 
-  // 获取用户详细信息
+  // 根据用户Id获取用户详细信息
   public async getUserById(userId: number): Promise<User | null> {
     if (!this.rdbStore) {
       hilog.error(0x0000, TAG, 'RdbStore is not initialized');
@@ -1021,9 +868,6 @@ export class DatabaseHelper {
           email,
           height,
           weight,
-          emergencyContact,
-          emergencyPhone,
-          medicalHistory,
           avatarPath
         );
 

@@ -39,8 +39,8 @@ struct RegisterPage {
     }
   }
 
-  async register() {
-    // 表单验证
+  async register() { //登录方法
+    // 表单验证 ，确保所填字段非空
     if (!this.username || !this.password || !this.confirmPassword) {
       promptAction.showToast({
         message: '请填写所有字段',
@@ -49,7 +49,7 @@ struct RegisterPage {
       return;
     }
 
-    if (this.password !== this.confirmPassword) {
+    if (this.password !== this.confirmPassword) { //确保两次密码一致
       promptAction.showToast({
         message: '两次输入的密码不一致',
         duration: 2000
@@ -75,9 +75,9 @@ struct RegisterPage {
       const success = await this.dbHelper.insertUser(newUser);
 
       if (success) {
-        promptAction.showToast({
-          message: '注册成功',
-          duration: 2000
+        promptAction.showToast({ //弹出提醒
+          message: '注册成功', // 提醒信息
+          duration: 2000 // 持续时间
         });
         // 返回登录页面
         router.back();
@@ -101,8 +101,8 @@ struct RegisterPage {
   build() {
     Column() {
       Text("个人健康管理系统").fontSize(36).fontColor('#1698CE').margin({top:'10%'})
-      // 添加头像
-      Image($r('app.media.image_1'))
+     //默认头像，可在用户信息修改页面进行换头像
+      Image($r('app.media.avater_1'))
         .width(100)
         .height(100)
         .borderRadius(50)
