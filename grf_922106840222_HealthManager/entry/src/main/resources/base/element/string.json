@@ -10,14 +10,14 @@
     },
     {
       "name": "EntryAbility_label",
-      "value": "label"
+      "value": "个人健康管理"
     }
   ,{
       "name": "mainAbility_desc",
       "value": "description"
     },{
       "name": "mainAbility_label",
-      "value": "label"
+      "value": "个人健康管理"
     },
     {
       "name": "req1",

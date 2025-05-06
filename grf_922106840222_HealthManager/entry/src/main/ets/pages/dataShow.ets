@@ -319,9 +319,93 @@ struct DataShow {
     }
   }
 
-  // 加载月数据（实现与loadWeekData类似）
+
   async loadMonthData() {
-    // ... 代码与上面类似，遍历本月日期
+    if (!this.userId) {
+      return;
+    }
+    try {
+      const userId = parseInt(this.userId);
+      this.heartRateRecords = [];
+      this.waterRecords = [];
+
+      let totalHeartRate = 0;
+      let totalHeartRateCount = 0;
+      let allHeartRates: number[] = [];
+      let totalWaterAmount = 0;
+      this.totalSteps = 0;
+      let totalSleepMinutes = 0;
+      let sleepDaysCount = 0;
+
+      // 遍历本月每一天加载数据
+      for (const date of this.monthDates) {
+        // 加载心率数据
+        const heartRateRecords = await this.dbHelper.getHeartRateRecords(userId, date);
+        this.heartRateRecords = [...this.heartRateRecords, ...heartRateRecords];
+
+        if (heartRateRecords.length > 0) {
+          const rates = heartRateRecords.map(record => record.rate);
+          totalHeartRate += rates.reduce((sum, rate) => sum + rate, 0);
+          totalHeartRateCount += rates.length;
+          allHeartRates = [...allHeartRates, ...rates];
+        }
+
+        // 加载饮水数据
+        const waterRecords = await this.dbHelper.getWaterRecords(userId, date);
+        this.waterRecords = [...this.waterRecords, ...waterRecords];
+
+        if (waterRecords.length > 0) {
+          const dayWaterAmount = waterRecords.reduce((sum, record) => sum + record.amount, 0);
+          totalWaterAmount += dayWaterAmount;
+        }
+
+        // 加载步数数据
+        const stepRecords = await this.dbHelper.getStepRecords(userId, date);
+        if (stepRecords.length > 0) {
+          this.totalSteps += stepRecords[0].steps;
+        }
+
+        // 加载睡眠数据
+        const sleepRecords = await this.dbHelper.getSleepRecords(userId, date);
+        if (sleepRecords.length > 0) {
+          totalSleepMinutes += sleepRecords[0].duration;
+          sleepDaysCount++;
+        }
+      }
+
+      // 计算心率统计信息
+      if (allHeartRates.length > 0) {
+        this.highestHeartRate = Math.max(...allHeartRates);
+        this.lowestHeartRate = Math.min(...allHeartRates);
+        this.averageHeartRate = Math.round(totalHeartRate / totalHeartRateCount);
+        this.restingHeartRate = this.lowestHeartRate + 5;
+        if (this.restingHeartRate > this.averageHeartRate) {
+          this.restingHeartRate = this.lowestHeartRate;
+        }
+
+        const latestRecord = this.heartRateRecords[this.heartRateRecords.length - 1];
+        this.heartRate = latestRecord.rate.toString();
+        this.lastHeartRateTime = `${latestRecord.date} ${latestRecord.time}`;
+      } else {
+        this.heartRate = '0';
+        this.restingHeartRate = 0;
+        this.highestHeartRate = 0;
+        this.lowestHeartRate = 0;
+        this.averageHeartRate = 0;
+        this.lastHeartRateTime = '';
+      }
+
+      // 设置总饮水量
+      this.waterAmount = totalWaterAmount.toString();
+
+      // 计算平均睡眠时间（小时）
+      this.averageSleepHours = sleepDaysCount > 0 ? (totalSleepMinutes / sleepDaysCount) / 60 : 0;
+
+      // 绘制月度心率图表
+      this.drawHeartRateChart();
+    } catch (error) {
+      console.error(`加载月数据失败: ${error}`);
+    }
   }
 
   // 打开系统日历应用
@@ -369,167 +453,192 @@ struct DataShow {
     return { dataPoints, labels };
   }
 
-  // 绘制心率图表
+  /**
+   * 绘制心率图表的方法
+   * 根据不同时间段（日/周/月）的选择显示相应的心率数据图表
+   */
   drawHeartRateChart() {
-    // 清空画布
+    // 清空整个画布，准备重新绘制
     this.context.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
 
+    // 检查是否有心率数据，如果没有则显示提示信息
     if (this.heartRateRecords.length === 0) {
-      this.context.fillStyle = '#888888';
-      this.context.textAlign = 'center';
-      this.context.font = '32px sans-serif';
-      this.context.fillText('暂无心率数据', this.canvasWidth / 2, this.canvasHeight / 2);
-      return;
+      this.context.fillStyle = '#888888';  // 设置文字颜色为灰色
+      this.context.textAlign = 'center';   // 文字居中对齐
+      this.context.font = '32px sans-serif'; // 设置字体大小和类型
+      this.context.fillText('暂无心率数据', this.canvasWidth / 2, this.canvasHeight / 2); // 在画布中央显示提示文字
+      return; // 没有数据则提前退出函数
     }
 
-    // 按时间排序记录
+    // 对心率记录按时间排序，使用数组解构创建副本避免修改原数组
     const sortedRecords = [...this.heartRateRecords].sort((a, b) => {
-      return a.time.localeCompare(b.time);
+      return a.time.localeCompare(b.time); // 使用字符串比较方法按时间升序排序
     });
 
-    // 计算心率范围
-    const rates = sortedRecords.map(record => record.rate);
-    const minRate = Math.max(Math.min(...rates) - 10, 0);
-    const maxRate = Math.max(...rates) + 10;
-    const rateRange = maxRate - minRate;
+    // 计算心率的范围，用于确定Y轴刻度
+    const rates = sortedRecords.map(record => record.rate); // 提取所有心率值
+    const minRate = Math.max(Math.min(...rates) - 10, 0);  // 最小心率值减10，但不小于0
+    const maxRate = Math.max(...rates) + 10;               // 最大心率值加10，提供上下边距
+    const rateRange = maxRate - minRate;                   // 计算心率范围区间大小
 
-    // 定义图表区域
-    const chartX = this.chartPadding + this.yAxisWidth;
-    const chartY = this.chartPadding;
-    const chartWidth = this.canvasWidth - this.yAxisWidth - this.chartPadding * 2;
-    const chartHeight = this.canvasHeight - this.xAxisHeight - this.chartPadding * 2;
+    // 定义图表的绘制区域，考虑了边距和轴的宽度
+    const chartX = this.chartPadding + this.yAxisWidth;    // 图表左边界位置
+    const chartY = this.chartPadding;                      // 图表上边界位置
+    const chartWidth = this.canvasWidth - this.yAxisWidth - this.chartPadding * 2;  // 图表宽度
+    const chartHeight = this.canvasHeight - this.xAxisHeight - this.chartPadding * 2; // 图表高度
 
+    // 准备数据点和X轴标签的数组
     let dataPoints: HeartRateRecord[] | AggregatedDataPoint[] = [];
     let xLabels: string[] = [];
 
-    // 根据选择的视图类型准备数据
+    // 根据选择的视图类型(日/周/月)准备相应的数据
     if (this.selectedTab === 0) {
+      // 日视图：直接使用排序后的记录
       dataPoints = sortedRecords;
-      xLabels = sortedRecords.map(record => record.time);
+      xLabels = sortedRecords.map(record => record.time); // X轴标签为时间
     } else if (this.selectedTab === 1) {
+      // 周视图：处理聚合的周数据
       const weekData = this.processAggregatedData(this.weekDates);
-      dataPoints = weekData.dataPoints;
-      xLabels = weekData.labels;
+      dataPoints = weekData.dataPoints; // 获取处理后的数据点
+      xLabels = weekData.labels;       // 获取处理后的标签
     } else {
+      // 月视图：处理聚合的月数据
       const monthData = this.processAggregatedData(this.monthDates);
       dataPoints = monthData.dataPoints;
       xLabels = monthData.labels;
     }
 
-    // 绘制Y轴
-    this.context.strokeStyle = '#CCCCCC';
-    this.context.lineWidth = 1;
-    this.context.beginPath();
-    this.context.moveTo(chartX, chartY);
-    this.context.lineTo(chartX, chartY + chartHeight);
-    this.context.stroke();
+    // 绘制Y轴主线
+    this.context.strokeStyle = '#CCCCCC'; // 设置轴线颜色为浅灰色
+    this.context.lineWidth = 1;          // 设置线宽为1像素
+    this.context.beginPath();            // 开始一个新的路径
+    this.context.moveTo(chartX, chartY); // 移动到Y轴起点
+    this.context.lineTo(chartX, chartY + chartHeight); // 画线到Y轴终点
+    this.context.stroke();               // 绘制路径
 
-    // 绘制Y轴标签和网格线
-    this.context.fillStyle = '#666666';
-    this.context.textAlign = 'right';
-    this.context.font = '32px sans-serif';
+    // 绘制Y轴刻度标签和水平网格线
+    this.context.fillStyle = '#666666';  // 设置标签文字颜色为深灰色
+    this.context.textAlign = 'right';    // 文字右对齐
+    this.context.font = '32px sans-serif'; // 设置字体
 
-    const yLabelCount = 5;
+    const yLabelCount = 5;              // Y轴标签数量
     for (let i = 0; i <= yLabelCount; i++) {
+      // 计算当前刻度对应的心率值
       const yValue = minRate + (rateRange * (yLabelCount - i) / yLabelCount);
+      // 计算当前刻度在Y轴上的位置
       const yPos = chartY + (i * chartHeight / yLabelCount);
 
+      // 绘制Y轴刻度文字标签
       this.context.fillText(Math.round(yValue).toString(), chartX - 5, yPos + 4);
 
-      this.context.strokeStyle = '#EEEEEE';
+      // 绘制对应的水平网格线
+      this.context.strokeStyle = '#EEEEEE'; // 设置网格线颜色为浅灰色
       this.context.beginPath();
-      this.context.moveTo(chartX, yPos);
-      this.context.lineTo(chartX + chartWidth, yPos);
+      this.context.moveTo(chartX, yPos);    // 从Y轴刻度位置开始
+      this.context.lineTo(chartX + chartWidth, yPos); // 画到图表右边界
       this.context.stroke();
     }
 
-    // 绘制X轴
+    // 绘制X轴主线
     this.context.strokeStyle = '#CCCCCC';
     this.context.beginPath();
-    this.context.moveTo(chartX, chartY + chartHeight);
-    this.context.lineTo(chartX + chartWidth, chartY + chartHeight);
+    this.context.moveTo(chartX, chartY + chartHeight); // 从X轴起点开始
+    this.context.lineTo(chartX + chartWidth, chartY + chartHeight); // 画到X轴终点
     this.context.stroke();
 
     // 绘制X轴标签
-    this.context.textAlign = 'center';
+    this.context.textAlign = 'center';   // 文字居中对齐
 
-    const maxLabels = Math.min(6, xLabels.length);
-    const labelStep = Math.ceil(xLabels.length / maxLabels);
+    // 限制X轴标签数量，避免标签过多导致拥挤
+    const maxLabels = Math.min(6, xLabels.length); // 最多显示6个标签或所有标签数(如果少于6个)
+    const labelStep = Math.ceil(xLabels.length / maxLabels); // 计算标签间隔步长
 
+    // 遍历并绘制X轴标签和垂直网格线
     for (let i = 0; i < xLabels.length; i += labelStep) {
       if (i < xLabels.length) {
         const label = xLabels[i];
+        // 根据视图类型调整标签显示内容
         const displayLabel = this.selectedTab === 0
-          ? label.substring(0, 5)
-          : label.substring(5);
+          ? label.substring(0, 5)     // 日视图只显示前5个字符
+          : label.substring(5);       // 周/月视图显示从第5个字符开始的内容
 
+        // 计算标签在X轴上的位置
         const xPos = chartX + (i / (xLabels.length - 1)) * chartWidth;
 
+        // 绘制X轴标签文字
         this.context.fillText(displayLabel, xPos, chartY + chartHeight + 20);
 
         // 绘制垂直网格线
         this.context.strokeStyle = '#EEEEEE';
         this.context.beginPath();
-        this.context.moveTo(xPos, chartY);
-        this.context.lineTo(xPos, chartY + chartHeight);
+        this.context.moveTo(xPos, chartY);              // 从图表上边界开始
+        this.context.lineTo(xPos, chartY + chartHeight); // 画到图表下边界
         this.context.stroke();
       }
     }
 
-    // 绘制心率折线图
+    // 绘制心率折线图，至少需要两个点才能绘制
     if (dataPoints.length > 1) {
-      this.context.strokeStyle = '#E74C3C';
-      this.context.lineWidth = 2;
+      // 设置折线样式
+      this.context.strokeStyle = '#E74C3C'; // 设置折线颜色为红色
+      this.context.lineWidth = 2;          // 设置线宽为2像素
       this.context.beginPath();
 
-      // 绘制连线
+      // 绘制连接所有数据点的折线
       for (let i = 0; i < dataPoints.length; i++) {
         const point = dataPoints[i];
+        // 根据视图类型获取不同的心率值
         const rate = this.selectedTab === 0
-          ? (point as HeartRateRecord).rate
-          : (point as AggregatedDataPoint).averageRate;
+          ? (point as HeartRateRecord).rate          // 日视图：直接使用记录的心率
+          : (point as AggregatedDataPoint).averageRate; // 周/月视图：使用平均心率
 
+        // 计算数据点在图表中的坐标
         const xPos = chartX + (i / (dataPoints.length - 1)) * chartWidth;
+        // Y坐标计算：将心率值映射到图表高度范围内
         const yPos = chartY + chartHeight - ((rate - minRate) / rateRange) * chartHeight;
 
         if (i === 0) {
-          this.context.moveTo(xPos, yPos);
+          this.context.moveTo(xPos, yPos); // 第一个点移动到位置
         } else {
-          this.context.lineTo(xPos, yPos);
+          this.context.lineTo(xPos, yPos); // 后续点连线到位置
         }
       }
 
-      this.context.stroke();
+      this.context.stroke(); // 绘制整条折线
 
-      // 绘制数据点和数值
-      this.context.fillStyle = '#FFFFFF';
-      this.context.strokeStyle = '#E74C3C';
-      this.context.lineWidth = 2;
-      this.context.textAlign = 'center';
+      // 绘制每个数据点的圆点和数值标签
+      this.context.fillStyle = '#FFFFFF';   // 设置圆点填充颜色为白色
+      this.context.strokeStyle = '#E74C3C'; // 设置圆点边框颜色为红色
+      this.context.lineWidth = 2;          // 设置边框宽度
+      this.context.textAlign = 'center';   // 文字居中对齐
 
+      // 遍历所有数据点
       for (let i = 0; i < dataPoints.length; i++) {
         const point = dataPoints[i];
+        // 根据视图类型获取心率值
         const rate = this.selectedTab === 0
           ? (point as HeartRateRecord).rate
           : (point as AggregatedDataPoint).averageRate;
 
+        // 计算数据点在图表中的坐标
         const xPos = chartX + (i / (dataPoints.length - 1)) * chartWidth;
         const yPos = chartY + chartHeight - ((rate - minRate) / rateRange) * chartHeight;
 
+        // 绘制数据点的圆圈
         this.context.beginPath();
-        this.context.arc(xPos, yPos, 4, 0, Math.PI * 2);
-        this.context.fill();
-        this.context.stroke();
+        this.context.arc(xPos, yPos, 4, 0, Math.PI * 2); // 绘制半径为4的圆
+        this.context.fill();   // 填充圆内部
+        this.context.stroke(); // 绘制圆边框
 
-        this.context.fillStyle = '#E74C3C';
-        this.context.font = 'bold 32px sans-serif';
-        this.context.fillText(rate.toString(), xPos, yPos - 15);
+        // 绘制心率数值标签
+        this.context.fillStyle = '#E74C3C';          // 设置文字颜色为红色
+        this.context.font = 'bold 32px sans-serif';  // 设置粗体字
+        this.context.fillText(rate.toString(), xPos, yPos - 15); // 在数据点上方显示心率值
 
-        this.context.fillStyle = '#FFFFFF';
+        this.context.fillStyle = '#FFFFFF'; // 恢复填充颜色为白色，为下一个点做准备
       }
     }
   }
-
   // 构建UI
   build() {
     Column() {
@@ -931,7 +1040,6 @@ struct DataShow {
                 .height(150)
                 .divider({ strokeWidth: 1, color: '#eeeeee' })
                 .margin({bottom : '100%'})
-                Text("").fontSize(50)
               }
               .width('90%')
               .padding(15)
@@ -984,9 +1092,8 @@ struct DataShow {
                     scaleCount: 15,
                     scaleWidth: 5
                   })
-                    // 使用渐变色
-                  .color('#3498DB')  // 如果不支持渐变，至少使用基本颜色
-                  .backgroundColor('#EEEEEE')  // 未填充部分的颜色
+                  .color('#3498DB')
+                  .backgroundColor('#EEEEEE')
 
                 Column() {
                   if (this.selectedTab === 0) {

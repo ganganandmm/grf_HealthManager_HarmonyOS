@@ -83,9 +83,6 @@ export class DatabaseHelper {
       hilog.info(0x0000, TAG, 'Initializing database');
       this.rdbStore = await relationalStore.getRdbStore(this.context, STORE_CONFIG);
 
-      // 检查 step_record 表是否需要升级
-      await this.upgradeStepRecordTable();
-
       // 创建基本表
       await this.rdbStore.executeSql(SQL_CREATE_USER_TABLE, []);
       await this.rdbStore.executeSql(SQL_CREATE_STEP_TABLE, []);
@@ -166,127 +163,6 @@ export class DatabaseHelper {
     } catch (error) {
       hilog.error(0x0000, TAG, `Failed to insert user: ${error}`);
       return -1;
-    }
-  }
-  // 步数时间记录表的创建方法
-  async createStepTimeRecordsTable(): Promise<boolean> {
-    if (!this.rdbStore) {
-      hilog.error(0x0000, TAG, 'RdbStore is not initialized');
-      return false;
-    }
-
-    try {
-      hilog.info(0x0000, TAG, 'Creating step_time_record table if not exists');
-
-      const SQL_CREATE_STEP_TIME_RECORDS_TABLE =
-        'CREATE TABLE IF NOT EXISTS step_time_record ' +
-          '(id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
-          'step_record_id INTEGER NOT NULL, ' +
-          'time TEXT NOT NULL, ' +
-          'steps INTEGER NOT NULL, ' +
-          'FOREIGN KEY (step_record_id) REFERENCES step_record(id))';
-
-      // 检查表是否已存在
-      try {
-        const checkTableSql = "SELECT name FROM sqlite_master WHERE type='table' AND name='step_time_record'";
-        const resultSet = await this.rdbStore.querySql(checkTableSql, []);
-        const tableExists = resultSet.rowCount > 0;
-        resultSet.close();
-
-        if (tableExists) {
-          hilog.info(0x0000, TAG, 'step_time_record table already exists');
-        } else {
-          hilog.info(0x0000, TAG, 'step_time_record table does not exist, creating now');
-        }
-      } catch (checkError) {
-        hilog.error(0x0000, TAG, `Error checking if table exists: ${checkError}`);
-      }
-
-      // 执行创建表SQL
-      await this.rdbStore.executeSql(SQL_CREATE_STEP_TIME_RECORDS_TABLE, []);
-
-      // 验证表是否创建成功
-      try {
-        const verifyTableSql = "SELECT name FROM sqlite_master WHERE type='table' AND name='step_time_record'";
-        const resultSet = await this.rdbStore.querySql(verifyTableSql, []);
-        const tableExists = resultSet.rowCount > 0;
-        resultSet.close();
-
-        if (tableExists) {
-          hilog.info(0x0000, TAG, 'Successfully created or verified step_time_record table');
-        } else {
-          hilog.error(0x0000, TAG, 'Failed to create step_time_record table, not found after creation attempt');
-          return false;
-        }
-      } catch (verifyError) {
-        hilog.error(0x0000, TAG, `Error verifying table creation: ${verifyError}`);
-      }
-
-      return true;
-    } catch (error) {
-      hilog.error(0x0000, TAG, `Failed to create step_time_record table: ${error}`);
-      return false;
-    }
-  }
-  //更新升级步数信息表
-  private async upgradeStepRecordTable(): Promise<void> {
-    if (!this.rdbStore) {
-      return;
-    }
-
-    try {
-      // 检查表是否存在
-      const checkTableSql = "SELECT name FROM sqlite_master WHERE type='table' AND name='step_record'";
-      const tableResult = await this.rdbStore.querySql(checkTableSql, []);
-      const tableExists = tableResult.rowCount > 0;
-      tableResult.close();
-
-      if (tableExists) {
-        // 检查表结构
-        const checkColumnSql = "PRAGMA table_info(step_record)";
-        const columnResult = await this.rdbStore.querySql(checkColumnSql, []);
-
-        let hasTimeColumn = false;
-        while (columnResult.goToNextRow()) {
-          const columnName = columnResult.getString(columnResult.getColumnIndex('name'));
-          if (columnName === 'time') {
-            hasTimeColumn = true;
-            break;
-          }
-        }
-        columnResult.close();
-
-        if (!hasTimeColumn) {
-          hilog.info(0x0000, TAG, 'step_record表缺少time列，进行表结构升级');
-
-          // 创建新表
-          const tempTableSql = 'CREATE TABLE IF NOT EXISTS step_record_new ' +
-            '(id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
-            'user_id INTEGER NOT NULL, ' +
-            'date TEXT NOT NULL, ' +
-            'time TEXT NOT NULL, ' +
-            'steps INTEGER NOT NULL, ' +
-            'FOREIGN KEY (user_id) REFERENCES user(id))';
-
-          await this.rdbStore.executeSql(tempTableSql, []);
-
-          // 迁移数据
-          const currentTime = new Date().toTimeString().substring(0, 5); // 默认时间为当前时间，格式为HH:MM
-          const migrateSql = `INSERT INTO step_record_new (user_id, date, time, steps)
-                            SELECT user_id, date, '${currentTime}', steps FROM step_record`;
-          await this.rdbStore.executeSql(migrateSql, []);
-
-          // 删除旧表
-          await this.rdbStore.executeSql('DROP TABLE step_record', []);
-
-          // 重命名新表
-          await this.rdbStore.executeSql('ALTER TABLE step_record_new RENAME TO step_record', []);
-
-          hilog.info(0x0000, TAG, 'step_record表结构升级完成');
-        }
-      }
-    } catch (error) {
-      hilog.error(0x0000, TAG, `升级step_record表结构失败: ${error}`);
     }
   }
 
@@ -437,6 +313,7 @@ export class DatabaseHelper {
     }
   }
 
+  // 获取用户步数数据方法
   public async getStepRecords(userId: number, date?: string): Promise<StepRecord[]> {
     if (!this.rdbStore) {
       return [];
@@ -647,49 +524,75 @@ export class DatabaseHelper {
   }
 
 
-  // C检查数据是否更新
+  /**
+   * 检查数据库中特定用户的健康数据是否有更新
+   * 该方法会检查用户的步数、心率、睡眠和饮水记录是否有任何更新
+   *
+   * @param userId - 需要检查数据的用户ID
+   * @param lastCheckTime - 上次检查数据的时间戳（注：当前实现未使用此参数）
+   * @returns 如果任何一种健康数据有更新则返回true，否则返回false
+   */
   public async checkDatabaseUpdates(userId: number, lastCheckTime: number): Promise<boolean> {
+    // 首先检查数据库连接是否有效
     if (!this.rdbStore) {
       return false;
     }
 
     try {
+      // 分别检查四种健康数据类型是否有更新
       const stepsUpdated = await this.hasRecentUpdates('step_record', userId, lastCheckTime);
       const heartRateUpdated = await this.hasRecentUpdates('heart_rate_record', userId, lastCheckTime);
       const sleepUpdated = await this.hasRecentUpdates('sleep_record', userId, lastCheckTime);
       const waterUpdated = await this.hasRecentUpdates('water_record', userId, lastCheckTime);
 
+      // 只要有任何一种数据更新，就返回true
       return stepsUpdated || heartRateUpdated || sleepUpdated || waterUpdated;
     } catch (error) {
+      // 记录错误日志并返回false
       hilog.error(0x0000, TAG, `Failed to check for database updates: ${error}`);
       return false;
     }
   }
 
-
+  /**
+   * 检查特定表中是否有当天的记录
+   * 这是一个辅助方法，用于检查指定表是否包含当天的数据记录
+   *
+   * @param tableName - 要检查的数据表名称
+   * @param userId - 用户ID
+   * @param lastCheckTime - 上次检查时间（注：当前实现未使用此参数）
+   * @returns 如果表中存在当天的记录则返回true，否则返回false
+   * @private - 这是一个私有辅助方法
+   */
   private async hasRecentUpdates(tableName: string, userId: number, lastCheckTime: number): Promise<boolean> {
+    // 检查数据库连接是否有效
     if (!this.rdbStore) {
       return false;
     }
 
     try {
+      // 获取当天的日期字符串，格式为"YYYY-MM-DD"
       const today = new Date().toISOString().split('T')[0];
 
+      // 创建查询条件：指定用户ID和当天日期
       const predicates = new relationalStore.RdbPredicates(tableName);
       predicates.equalTo('user_id', userId);
       predicates.equalTo('date', today);
 
+      // 执行查询，只需获取ID字段即可
       const resultSet = await this.rdbStore.query(predicates, ['id']);
+      // 检查是否有记录（行数大于0）
       const hasUpdates = resultSet.rowCount > 0;
+      // 关闭结果集，释放资源
       resultSet.close();
 
       return hasUpdates;
     } catch (error) {
+      // 记录错误日志并返回false
       hilog.error(0x0000, TAG, `Failed to check for updates in ${tableName}: ${error}`);
       return false;
     }
   }
-
   // 更新步数信息
   public async updateStepRecord(record: StepRecord): Promise<boolean> {
     if (!this.rdbStore || !record.id) {
@@ -923,7 +826,6 @@ export class DatabaseHelper {
       const valuesBucket: relationalStore.ValuesBucket = {
         'amount': record.amount
       };
-
       const predicates = new relationalStore.RdbPredicates('water_record');
       predicates.equalTo('id', record.id);
 
@@ -934,5 +836,4 @@ export class DatabaseHelper {
       return false;
     }
   }
-
 }

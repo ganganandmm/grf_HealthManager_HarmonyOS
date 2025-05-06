@@ -1,6 +1,15 @@
+/**
+ * HomeTab.ets - 健康应用首页标签页组件
+ *
+ * 导入相关组件和数据模型
+ */
 import { HealthDataCard, HeartRateRecordItem, WaterRecordItem } from './myComponents';
 import { HeartRateRecord, WaterRecord } from '../common/HealthDataModel';
 export const TAG: string = 'HomeTab';
+
+/**
+ * 文本样式扩展，定义标题文本样式
+ */
 @Extend(Text)
 function titleText() {
   .fontSize(20)
@@ -8,6 +17,9 @@ function titleText() {
   .margin({ top: 10, bottom: 20 })
 }
 
+/**
+ * 文本样式扩展，定义子标题文本样式
+ */
 @Extend(Text)
 function subtitleText() {
   .fontSize(18)
@@ -15,18 +27,27 @@ function subtitleText() {
   .margin({ bottom: 10 })
 }
 
+/**
+ * 文本样式扩展，定义标签文本样式
+ */
 @Extend(Text)
 function labelText() {
   .fontSize(16)
   .fontColor('#666')
 }
 
+/**
+ * 文本样式扩展，定义数值文本样式
+ */
 @Extend(Text)
 function valueText() {
   .fontSize(24)
   .fontWeight(FontWeight.Bold)
 }
 
+/**
+ * 容器样式扩展，定义卡片容器样式
+ */
 @Extend(Column)
 function cardContainer() {
   .width('90%')
@@ -36,29 +57,40 @@ function cardContainer() {
   .margin({ bottom: 10 })
 }
 
+/**
+ * HomeTab组件 - 应用首页主组件
+ */
 @Component
 export struct HomeTab {
-  @Link username: string;
-  @Link userId: number;
-  @Link totalSteps: number;
-  @Link heartRate: number;
-  @Link sleepHours: number;
-  @Link waterAmount: number;
-  @Link currentDate: string;
-  @Link receivedHealthData: string;
-  @Link heartRateRecords: HeartRateRecord[];
-  @Link waterRecords: WaterRecord[];
-  @Link steps: number;
-  private refreshData: () => Promise<void> = async () => {};
-  private shareHealthData: () => Promise<void> = async () => {};
-  private ClickJumpToShowData: () => void = () => {};
+  // 数据绑定属性，使用@Link装饰器实现与父组件的双向数据绑定
+  @Link username: string;          // 用户名
+  @Link userId: number;            // 用户ID
+  @Link totalSteps: number;        // 总步数
+  @Link heartRate: number;         // 心率
+  @Link sleepHours: number;        // 睡眠时长
+  @Link waterAmount: number;       // 饮水量
+  @Link currentDate: string;       // 当前日期
+  @Link receivedHealthData: string; // 接收到的健康数据
+  @Link heartRateRecords: HeartRateRecord[]; // 心率记录列表
+  @Link waterRecords: WaterRecord[];         // 饮水记录列表
+  @Link steps: number;             // 步数
 
+  // 功能回调函数
+  private refreshData: () => Promise<void> = async () => {};      // 刷新数据
+  private shareHealthData: () => Promise<void> = async () => {};  // 分享健康数据
+  private ClickJumpToShowData: () => void = () => {};            // 跳转查看详细数据
+
+  /**
+   * 构建UI界面
+   */
   build() {
     Scroll() {
       Column() {
+        // 页面标题
         Text('今日健康数据概览')
           .titleText()
 
+        // 步数和心率数据卡片行
         Row() {
           HealthDataCard({
             title: '步数',
@@ -77,6 +109,7 @@ export struct HomeTab {
         .justifyContent(FlexAlign.SpaceBetween)
         .margin({ top: 10, bottom: 20 })
 
+        // 睡眠和饮水量数据卡片行
         Row() {
           HealthDataCard({
             title: '睡眠时长',
@@ -119,13 +152,13 @@ export struct HomeTab {
         .justifyContent(FlexAlign.SpaceBetween)
         .margin({ top: 20, bottom: 20 })
 
-        // Pull to refresh text
+        // 下拉刷新提示文本
         Text('下拉刷新数据')
           .fontSize(14)
           .fontColor('#888')
           .margin({ top: 5, bottom: 15 })
 
-        // 显示接收到的健康数据
+        // 条件渲染：显示接收到的健康数据（如果有）
         if (this.receivedHealthData) {
           Column() {
             Text('接收到的健康数据')
@@ -141,7 +174,7 @@ export struct HomeTab {
           .margin({ top: 10, bottom: 20 })
         }
 
-        // 最近饮水记录
+        // 饮水记录列表
         Column() {
           Text('今日饮水记录')
             .subtitleText()
@@ -166,7 +199,7 @@ export struct HomeTab {
           .height(1)
           .backgroundColor('#ddd')
 
-        //心率记录
+        // 心率记录列表
         Column() {
           Text('今日心率记录')
             .subtitleText()
@@ -191,8 +224,8 @@ export struct HomeTab {
     }
     .scrollBar(BarState.Auto)
     .onScrollFrameBegin((offset: number) => {
-      // Implement pull-to-refresh functionality
-      if (offset <= -100) { // If pulled down more than 100px
+      // 下拉刷新实现：当下拉距离超过100px时触发刷新
+      if (offset <= -100) {
         this.refreshData();
         return { offsetRemain: 0 };
       }

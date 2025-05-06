@@ -1,11 +1,7 @@
 import { StepRecordItem } from './myComponents';
 import { StepRecord } from '../common/HealthDataModel';
 import { ChartDataItem } from './mainhomeInterface';
-import { hilog } from '@kit.PerformanceAnalysisKit';
-
 export const TAG: string = 'MyMovementTab';
-const DOMAIN_NUMBER: number = 0xFF00;
-
 @Extend(Text)
 function titleText() {
   .fontSize(20)
@@ -47,7 +43,7 @@ export struct MyMovementTab {
   @Link myHeight: number;
   @Link bmi: number;
   private refreshData: () => Promise<void> = async () => {};
-  private updateStepChartData: () => Promise<void> = async () => {};
+  private updateStepChartData: (forceRefresh?: boolean) => Promise<void> = async () => {};
 
   calculateBarHeight(value: number): number {
     const maxHeight = 120;
@@ -55,6 +51,13 @@ export struct MyMovementTab {
     return Math.max(calculatedHeight, value > 0 ? 5 : 0);
   }
 
+  formatStepValue(value: number): string {
+    // 对于大于1000的值，以K为单位显示
+    if (value >= 10000) {
+      return `${(value / 1000).toFixed(0)}K`;
+    }
+    return value.toString();
+  }
   build() {
     Scroll() {
       Column() {
@@ -92,7 +95,7 @@ export struct MyMovementTab {
               .borderRadius(20)
               .onClick(() => {
                 this.chartMode = mode;
-                this.updateStepChartData();
+                this.updateStepChartData(true);
               })
           })
         }
@@ -120,9 +123,8 @@ export struct MyMovementTab {
         .alignItems(HorizontalAlign.Start)
         .margin({ bottom: 20 })
 
-        // 合并柱状图和日期为一个列表
+        // 修改后的柱状图部分 - 集成日期和柱状图，确保同步滚动
         Column() {
-          // Y轴标签和网格线
           Stack() {
             // Y轴刻度 - 动态调整以适应数据
             Column() {
@@ -141,40 +143,72 @@ export struct MyMovementTab {
                     .color('#eee')
                 }
                 .width('100%')
-                .height(25)
+                .height(20) // 统一高度
               })
             }
-            .height(150)
+            .height(120) // 统一Y轴高度
             .width('100%')
             .alignItems(HorizontalAlign.Start)
 
+            // 集成的柱状图和日期部分 - 单一列表实现同步滚动
             Column() {
-              List() {
+              // 创建一个单一列表，包含柱子和对应的日期
+              List({ space: 0 }) {
                 ForEach(this.stepChartData, (item: ChartDataItem) => {
                   ListItem() {
                     Column() {
-                      // 柱子部分
+                      // 上部分: 步数标注和柱子 - 在固定高度的容器中
                       Column() {
-                        if (item.value > 0) {
-                          Column()
-                            .width(this.chartMode === '月' ? 20 : 40)
-                            .height(this.calculateBarHeight(item.value))
-                            .backgroundColor('#FFD700')
-                            .borderRadius(this.chartMode === '月' ? 3 : 5)
-                        }
-                      }
-                      .height(130)
-                      .width('100%')
-                      .justifyContent(FlexAlign.End)
+                        // 添加一个固定高度的栈容器，确保柱状图有固定的显示区域
+                        Stack({ alignContent: Alignment.Bottom }) {
+                          if (item.value > 0) {
+                            Column() {
+                              // 步数标注在柱子上方
+                              Text(item.value.toString())
+                                .fontSize(this.chartMode === '月' ? 10 : 12)
+                                .fontColor('#333')
+                                .fontWeight(FontWeight.Bold)
+                                .margin({ bottom: 4 })
+                                .textAlign(TextAlign.Center)
+                                .width('100%')
+                                .visibility(item.value > (this.maxDisplayValue * 0.05) ? Visibility.Visible : Visibility.Hidden)
 
-                      // 日期标签直接放在柱子下方
-                      Text(item.label)
-                        .fontSize(14)
-                        .fontColor('#333')
-                        .textAlign(TextAlign.Center)
+                              // 柱子本身
+                              Column()
+                                .width(this.chartMode === '月' ? 20 : 40)
+                                .height(this.calculateBarHeight(item.value))
+                                .backgroundColor('#FFD700')
+                                .borderRadius(this.chartMode === '月' ? 3 : 5)
+                            }
+                            .width('100%')
+                            .alignItems(HorizontalAlign.Center)
+                          }
+                        }
                         .width('100%')
-                        .padding({ top: 5, bottom: 5 })
+                        .height(100) // 固定高度的容器，确保不会溢出到日期区域
+                      }
+                      .height(100)
+                      .width('100%')
+                      .alignItems(HorizontalAlign.Center)
+
+                      // 清晰的分隔区域 - 确保柱状图和日期之间有空间
+                      Column()
+                        .height(15)
+                        .width('100%')
+
+                      // 下部分: 日期标签区域 - 独立的区域
+                      Column() {
+                        Text(item.label)
+                          .fontSize(14)
+                          .fontColor('#333')
+                          .textAlign(TextAlign.Center)
+                          .width('100%')
+                      }
+                      .width('100%')
+                      .height(25) // 固定高度的日期区域
+                      .alignItems(HorizontalAlign.Center)
                     }
+                    .width('100%')
                     .alignItems(HorizontalAlign.Center)
                   }
                   .width(this.chartMode === '月' ? 40 : 60)
@@ -186,30 +220,31 @@ export struct MyMovementTab {
               .scrollBarWidth(2)
               .edgeEffect(EdgeEffect.Spring)
               .width('100%')
-              .height(170) // 增加高度以容纳日期标签
+              .height(160) // 增加高度以容纳柱子和日期
             }
             .width('100%')
-            .height(170)
+            .height(160)
             .margin({ left: 60 })
           }
-
-          // 分隔线
-          Divider()
-            .width('90%')
-            .strokeWidth(1)
-            .color('#ddd')
-            .margin({ top: 5 })
-
-          // 图表说明
-          Text('← 左右滑动查看更多数据 →')
-            .fontSize(12)
-            .fontColor('#666')
-            .textAlign(TextAlign.Center)
-            .width('100%')
-            .margin({ top: 5 })
+          .width('100%')
         }
         .width('100%')
         .margin({ bottom: 20 })
+
+        // 分隔线
+        Divider()
+          .width('90%')
+          .strokeWidth(1)
+          .color('#ddd')
+          .margin({ top: 15 }) // 增加顶部间距，确保与图表有明确分隔
+
+        // 图表说明
+        Text('← 左右滑动查看更多数据 →')
+          .fontSize(12)
+          .fontColor('#666')
+          .textAlign(TextAlign.Center)
+          .width('100%')
+          .margin({ top: 5 })
 
         // 概览部分
         Row() {

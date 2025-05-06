@@ -65,7 +65,7 @@ struct LoginPage {   // 登录页面组件
 
     try {
       // 延迟1秒钟模拟后台认证过程
-      await new Promise<void>(resolve => setTimeout(resolve, 3000));
+      await new Promise<void>(resolve => setTimeout(resolve, 2000));
 
       const isValid = await this.dbHelper.validateUser(this.username, this.password); //检查用户信息是否正确
 
@@ -122,7 +122,8 @@ struct LoginPage {   // 登录页面组件
     });
   }
 
-  build() {
+  @Builder
+  HeaderSection() {
     Column() {
       Text("个人健康管理系统").fontSize(36).fontColor('#1698CE').margin({top:'20%'})
       Image($r('app.media.avater_1'))
@@ -136,7 +137,12 @@ struct LoginPage {   // 登录页面组件
         .fontWeight('bold')
         .margin({ top: 20 })
         .textAlign(TextAlign.Center)
+    }
+  }
 
+  @Builder
+  InputFields() {
+    Column() {
       TextInput({ placeholder: '请输入用户名', text: this.username })
         .type(InputType.Normal)
         .width('80%')
@@ -168,40 +174,55 @@ struct LoginPage {   // 登录页面组件
       .width('80%')
       .margin({ top: '5%' })
       .justifyContent(FlexAlign.Start)
+    }
+  }
 
-      Button() {
-        Row() {
-          if (this.isLoading) {
-            LoadingProgress()
-              .width(20)
-              .height(20)
-              .color(Color.White)
-              .margin({ right: 8 })
-            Text('登录中...')
-              .fontColor(Color.White)
-          } else {
-            Text('登录')
-              .fontColor(Color.White)
-          }
+  @Builder
+  LoginButton() {
+    Button() {
+      Row() {
+        if (this.isLoading) {
+          LoadingProgress()
+            .width(20)
+            .height(20)
+            .color(Color.White)
+            .margin({ right: 8 })
+          Text('登录中...')
+            .fontColor(Color.White)
+        } else {
+          Text('登录')
+            .fontColor(Color.White)
         }
-        .width('100%')
-        .justifyContent(FlexAlign.Center)
       }
-      .width('80%')
-      .height(50)
-      .margin({ top: '10%' })
-      .backgroundColor('#1698CE')
-      .enabled(!this.isLoading)
-      .onClick(() => {
-        this.login();
-      })
+      .width('100%')
+      .justifyContent(FlexAlign.Center)
+    }
+    .width('80%')
+    .height(50)
+    .margin({ top: '10%' })
+    .backgroundColor('#1698CE')
+    .enabled(!this.isLoading)
+    .onClick(() => {
+      this.login();
+    })
+  }
 
-      Text('没有账号？点击注册')
-        .margin({ top: '5%' })
-        .textAlign(TextAlign.Center)
-        .onClick(() => {
-          this.onJumptoRegister();
-        })
+  @Builder
+  RegisterLink() {
+    Text('没有账号？点击注册')
+      .margin({ top: '5%' })
+      .textAlign(TextAlign.Center)
+      .onClick(() => {
+        this.onJumptoRegister();
+      })
+  }
+
+  build() {
+    Column() {
+      this.HeaderSection()
+      this.InputFields()
+      this.LoginButton()
+      this.RegisterLink()
     }
     .backgroundColor('#f5f5f5')
     .width('100%')
