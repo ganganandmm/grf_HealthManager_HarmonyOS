@@ -3,7 +3,7 @@
  * 健康数据录入界面组件
  * 负责用户健康数据(步数、心率、睡眠、饮水量)的录入和保存功能
  */
-import { DataInputRow } from './myComponents'; // 导入自定义的数据输入行组件
+import { DataInputRow } from '../ComponentAndDialog/myComponents'; // 导入自定义的数据输入行组件
 import { SleepRecord, WaterRecord, StepRecord, HeartRateRecord } from '../common/HealthDataModel'; // 导入健康数据模型
 import promptAction from '@ohos.promptAction'; // 导入提示框组件
 import { hilog } from '@kit.PerformanceAnalysisKit'; // 导入日志组件

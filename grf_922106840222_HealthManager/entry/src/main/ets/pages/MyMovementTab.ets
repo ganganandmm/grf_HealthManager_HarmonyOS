@@ -1,6 +1,6 @@
-import { StepRecordItem } from './myComponents';
+import { StepRecordItem } from '../ComponentAndDialog/myComponents';
 import { StepRecord } from '../common/HealthDataModel';
-import { ChartDataItem } from './mainhomeInterface';
+import { ChartDataItem } from '../Interface/mainhomeInterface';
 export const TAG: string = 'MyMovementTab';
 @Extend(Text)
 function titleText() {

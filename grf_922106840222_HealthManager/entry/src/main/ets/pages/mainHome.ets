@@ -6,13 +6,13 @@ import { DatabaseHelper } from '../common/DatabaseHelper';
 import { StepRecord, HeartRateRecord, WaterRecord } from '../common/HealthDataModel';
 import Want from '@ohos.app.ability.Want'
 import promptAction from '@ohos.promptAction';
-import { HeartRateInputDialog, StepInputDialog, WaterInputDialog } from './Dialog'
+import { HeartRateInputDialog, StepInputDialog, WaterInputDialog } from '../ComponentAndDialog/Dialog'
 import {
   ChartDataItem,
   HealthData, RouteParams,
   RouterParams,
   StepTimeInput
-} from './mainhomeInterface';
+} from '../Interface/mainhomeInterface';
 import { notificationManager } from '@kit.NotificationKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { HomeTab } from './HomeTab';
@@ -593,6 +593,7 @@ struct MainHome {
 
         // 刷新健康数据和图表数据
         await this.loadHealthData();
+        this.checkWaterAndNotify(this.waterAmount);  // 检查饮水量并可能发送通知
         await this.updateStepChartData(true); // 强制刷新图表数据
       }
     } catch (error) {
@@ -773,7 +774,9 @@ struct MainHome {
             // 计算该日的总步数（累加所有记录的步数）
             const daySteps = stepRecords.reduce((sum, record) => sum + record.steps, 0);
             // 记录日志，显示计算出的总步数
-            hilog.info(DOMAIN_NUMBER, TAG, `${dateStr} 的总步数: ${daySteps}`);
+            hilog.info(DOMAIN_NUMBER, TAG, `${dateStr} 的
+
+            总步数: ${daySteps}`);
 
             // 添加图表数据项，标签为"月/日"格式
             data.push({
@@ -1276,7 +1279,7 @@ struct MainHome {
 
           // 向用户显示保存成功的消息
           promptAction.showToast({
-            message: `成功保存 ${successCount} 条步数记录，总步数: ${totalSteps}`
+            message: `成功保存 ${successCount} 条步数记录，输入的总步数为: ${totalSteps}`
           });
 
           // 检查步数达成情况并可能发送通知，然后刷新界面数据

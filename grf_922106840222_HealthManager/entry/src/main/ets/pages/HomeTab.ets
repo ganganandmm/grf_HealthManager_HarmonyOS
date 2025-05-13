@@ -3,7 +3,7 @@
  *
  * 导入相关组件和数据模型
  */
-import { HealthDataCard, HeartRateRecordItem, WaterRecordItem } from './myComponents';
+import { HealthDataCard, HeartRateRecordItem, WaterRecordItem } from '../ComponentAndDialog/myComponents';
 import { HeartRateRecord, WaterRecord } from '../common/HealthDataModel';
 export const TAG: string = 'HomeTab';
 

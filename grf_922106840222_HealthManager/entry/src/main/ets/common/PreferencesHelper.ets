@@ -10,18 +10,33 @@ interface UserInfo {
   rememberMe: boolean;
 }
 
+/**
+ * 首选项帮助类：提供应用首选项的访问和管理功能
+ * 主要用于存储和检索用户登录信息和应用设置
+ */
 export class PreferencesHelper {
-  private preferences: preferences.Preferences | null = null;
-  private context: Context;
+  private preferences: preferences.Preferences | null = null; // 首选项存储实例
+  private context: Context; // 应用上下文
 
+  /**
+   * 构造函数：初始化首选项帮助类
+   * @param context - 应用上下文，用于获取首选项实例
+   */
   constructor(context: Context) {
     this.context = context;
   }
 
+  /**
+   * 初始化首选项存储
+   * 在使用首选项之前必须调用此方法获取存储实例
+   * @returns Promise<void> - 异步操作完成的Promise
+   */
   async initPreferences(): Promise<void> {
     try {
+      // 获取指定名称的首选项实例
       this.preferences = await preferences.getPreferences(this.context, PREFERENCES_NAME);
     } catch (error) {
+      // 记录初始化失败的错误
       console.error(`Failed to init preferences: ${error}`);
     }
   }
@@ -63,14 +78,27 @@ export class PreferencesHelper {
     }
   }
 
+  /**
+   * 获取保存的用户登录信息
+   * 从首选项存储中检索用户名、密码和"记住我"状态
+   *
+   * @returns Promise<UserInfo> - 包含用户信息的Promise对象
+   *                             如果出错则返回默认空信息
+   */
   async getUserInfo(): Promise<UserInfo> {
+    // 确保首选项实例已初始化
     if (!this.preferences) {
       await this.initPreferences();
     }
+
     try {
+      // 从首选项存储中检索用户登录信息
+      // 提供默认值以处理不存在的键
       const username = await this.preferences?.get(KEY_USERNAME, '');
       const password = await this.preferences?.get(KEY_PASSWORD, '');
       const rememberMe = await this.preferences?.get(KEY_REMEMBER_ME, false);
+
+      // 构建并返回用户信息对象
       const userInfo: UserInfo = {
         username: username as string,
         password: password as string,
@@ -78,7 +106,10 @@ export class PreferencesHelper {
       };
       return userInfo;
     } catch (error) {
+      // 记录获取用户信息失败的错误
       console.error(`Failed to get user info: ${error}`);
+
+      // 返回默认的空用户信息对象
       const defaultUserInfo: UserInfo = {
         username: '',
         password: '',
@@ -87,4 +118,4 @@ export class PreferencesHelper {
       return defaultUserInfo;
     }
   }
-} 
+}
